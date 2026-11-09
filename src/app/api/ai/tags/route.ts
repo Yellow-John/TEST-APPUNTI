@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aiErrorResponse, callClaudeJSON } from "@/lib/ai/claude";
+import { aiErrorResponse, callAIJSON } from "@/lib/ai/gemini";
 import { TAGS_SCHEMA, TAGS_SYSTEM } from "@/lib/ai/prompts";
 import { jsonError, requireUser } from "@/lib/server-auth";
 
@@ -17,15 +17,14 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError("Richiesta non valida");
   const { title, content, existingTags, notebooks } = parsed.data;
   try {
-    const result = await callClaudeJSON({
+    const result = await callAIJSON({
       sb: auth.sb,
       userId: auth.user.id,
       feature: "tag",
       system: TAGS_SYSTEM,
-      content: `Tag esistenti: ${existingTags.join(", ") || "(nessuno)"}\nQuaderni esistenti: ${notebooks.join(", ") || "(nessuno)"}\n\nTitolo: ${title}\n\n${content.slice(0, 20000)}`,
+      parts: `Tag esistenti: ${existingTags.join(", ") || "(nessuno)"}\nQuaderni esistenti: ${notebooks.join(", ") || "(nessuno)"}\n\nTitolo: ${title}\n\n${content.slice(0, 20000)}`,
       schema: TAGS_SCHEMA,
-      effort: "low",
-      maxTokens: 4000,
+      tier: "lite",
     });
     return Response.json(result);
   } catch (e) {

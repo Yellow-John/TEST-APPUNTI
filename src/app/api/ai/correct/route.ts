@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aiErrorResponse, callClaudeJSON } from "@/lib/ai/claude";
+import { aiErrorResponse, callAIJSON } from "@/lib/ai/gemini";
 import { CORRECT_SCHEMA, correctSystem } from "@/lib/ai/prompts";
 import { jsonError, requireUser } from "@/lib/server-auth";
 import type { Suggestion } from "@/lib/types";
@@ -18,14 +18,13 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError("Richiesta non valida");
   const { content, kinds } = parsed.data;
   try {
-    const result = await callClaudeJSON<{ suggestions: Suggestion[] }>({
+    const result = await callAIJSON<{ suggestions: Suggestion[] }>({
       sb: auth.sb,
       userId: auth.user.id,
       feature: `correzione-${kinds.join("+")}`,
       system: correctSystem(kinds),
-      content: `<appunti>\n${content}\n</appunti>`,
+      parts: `<appunti>\n${content}\n</appunti>`,
       schema: CORRECT_SCHEMA,
-      effort: kinds.includes("concetto") || kinds.includes("lacuna") ? "high" : "low",
     });
     // tieni solo i suggerimenti applicabili (testo originale presente nella nota)
     const suggestions = result.suggestions.filter(

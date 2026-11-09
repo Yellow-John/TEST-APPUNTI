@@ -1,5 +1,5 @@
 "use client";
-import { Download, KeyRound, LogOut, Moon, Smartphone, Sun, Monitor } from "lucide-react";
+import { Download, KeyRound, LogOut, Moon, Smartphone, Sun, SunMoon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useUser } from "@/components/AppProvider";
@@ -9,14 +9,13 @@ import { exportBackup } from "@/lib/export";
 import { stopSyncAndClear } from "@/lib/sync";
 import { supabase } from "@/lib/supabase/client";
 
-type Usage = { feature: string; cost_usd: number; input_tokens: number; output_tokens: number; created_at: string };
+type Usage = { feature: string; model: string; cost_usd: number; input_tokens: number; output_tokens: number; created_at: string };
 
 export default function SettingsPage() {
   const user = useUser();
   const router = useRouter();
   const [theme, setTheme] = useState("system");
   const [font, setFont] = useState(1);
-  const [budget, setBudget] = useState(10);
   const [confirmAi, setConfirmAi] = useState(false);
   const [usage, setUsage] = useState<Usage[]>([]);
   const [saved, setSaved] = useState("");
@@ -29,20 +28,17 @@ export default function SettingsPage() {
     setFont(Number(localStorage.getItem("fontScale") || 1));
     supabase()
       .from("user_settings")
-      .select("monthly_budget_usd,confirm_before_ai")
+      .select("confirm_before_ai")
       .maybeSingle()
       .then(({ data }) => {
-        if (data) {
-          setBudget(Number(data.monthly_budget_usd));
-          setConfirmAi(data.confirm_before_ai);
-        }
+        if (data) setConfirmAi(data.confirm_before_ai);
       });
     const start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
     supabase()
       .from("ai_usage")
-      .select("feature,cost_usd,input_tokens,output_tokens,created_at")
+      .select("feature,model,cost_usd,input_tokens,output_tokens,created_at")
       .gte("created_at", start.toISOString())
       .order("created_at", { ascending: false })
       .then(({ data }) => setUsage((data as Usage[]) ?? []));
@@ -66,20 +62,27 @@ export default function SettingsPage() {
     document.documentElement.style.setProperty("--font-scale", String(f));
   }
   async function saveAi() {
-    const { error } = await supabase().from("user_settings").upsert({ user_id: user!.id, monthly_budget_usd: budget, confirm_before_ai: confirmAi });
+    const { error } = await supabase().from("user_settings").upsert({ user_id: user!.id, confirm_before_ai: confirmAi });
     invalidateAiSettings();
     setSaved(error ? `Errore: ${error.message}` : "Salvato ✓");
     setTimeout(() => setSaved(""), 2000);
   }
 
-  const total = usage.reduce((s, u) => s + Number(u.cost_usd), 0);
+  const today = new Date().toDateString();
+  const todayUsage = usage.filter((u) => new Date(u.created_at).toDateString() === today);
   const byFeature = Object.entries(
-    usage.reduce<Record<string, { n: number; cost: number }>>((m, u) => {
+    todayUsage.reduce<Record<string, number>>((m, u) => {
       const k = u.feature.split("-")[0];
-      m[k] = { n: (m[k]?.n ?? 0) + 1, cost: (m[k]?.cost ?? 0) + Number(u.cost_usd) };
+      m[k] = (m[k] ?? 0) + 1;
       return m;
     }, {}),
-  ).sort((a, b) => b[1].cost - a[1].cost);
+  ).sort((a, b) => b[1] - a[1]);
+  const byModel = Object.entries(
+    todayUsage.reduce<Record<string, number>>((m, u) => {
+      m[u.model] = (m[u.model] ?? 0) + 1;
+      return m;
+    }, {}),
+  );
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-4 md:py-8">
@@ -87,7 +90,7 @@ export default function SettingsPage() {
 
       <Section title="Aspetto">
         <div className="grid grid-cols-3 gap-2">
-          {([["light", "Chiaro", <Sun key="s" size={16} />], ["dark", "Scuro", <Moon key="m" size={16} />], ["system", "Automatico", <Monitor key="a" size={16} />]] as const).map(([v, l, icon]) => (
+          {([["light", "Chiaro", <Sun key="s" size={16} />], ["dark", "Scuro", <Moon key="m" size={16} />], ["system", "Automatico", <SunMoon key="a" size={16} />]] as const).map(([v, l, icon]) => (
             <button key={v} onClick={() => applyTheme(v)} className={`btn !py-2 ${theme === v ? "!border-accent !bg-accent-soft !text-accent" : ""}`}>
               {icon} {l}
             </button>
@@ -99,34 +102,39 @@ export default function SettingsPage() {
         </label>
       </Section>
 
-      <Section title="Intelligenza artificiale e costi">
+      <Section title="Intelligenza artificiale (gratuita)">
         <div className="mb-4 rounded-lg bg-panel-2 p-3">
-          <p className="text-sm text-muted">Speso questo mese</p>
-          <p className="text-2xl font-bold">
-            {total.toFixed(2)} $ <span className="text-sm font-normal text-muted">/ {budget.toFixed(2)} $</span>
-          </p>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-line">
-            <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, budget > 0 ? (total / budget) * 100 : 0)}%` }} />
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm text-muted">Richieste AI di oggi</p>
+            <p className="text-xs text-muted">Questo mese: {usage.length}</p>
           </div>
+          <p className="text-2xl font-bold">{todayUsage.length}</p>
+          {byModel.length > 0 && (
+            <p className="mt-1 text-xs text-muted">{byModel.map(([m, n]) => `${m}: ${n}`).join(" · ")}</p>
+          )}
           {byFeature.length > 0 && (
             <table className="mt-3 w-full text-xs">
               <tbody>
-                {byFeature.map(([f, v]) => (
+                {byFeature.map(([f, n]) => (
                   <tr key={f} className="border-t border-line">
                     <td className="py-1 capitalize">{f}</td>
-                    <td className="py-1 text-right text-muted">{v.n} richieste</td>
-                    <td className="py-1 text-right">{v.cost.toFixed(3)} $</td>
+                    <td className="py-1 text-right text-muted">{n}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
-        <label className="block text-sm">
-          Budget mensile massimo (USD, 0 = nessun limite)
-          <input type="number" min={0} step={1} value={budget} onChange={(e) => setBudget(+e.target.value)} className="input mt-1" />
-        </label>
-        <label className="mt-3 flex items-center gap-2 text-sm">
+        <p className="mb-3 text-sm text-muted">
+          L&apos;AI usa il piano gratuito di Google Gemini: <b>costo zero</b>, ma con un limite di richieste al giorno che Google può cambiare. Quando
+          finisce, l&apos;app passa al modello più leggero e poi ti avvisa; la quota si rinnova ogni giorno. Le foto si possono comunque trascrivere
+          senza AI (solo testo stampato).
+        </p>
+        <p className="mb-3 rounded-lg border border-line p-2 text-xs text-muted">
+          🔒 Privacy: con il piano gratuito Google può usare i contenuti inviati all&apos;AI per migliorare i suoi servizi. Evita di elaborare con l&apos;AI
+          appunti con dati personali o riservati (le note bloccate con PIN non vengono mai inviate).
+        </p>
+        <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={confirmAi} onChange={(e) => setConfirmAi(e.target.checked)} />
           Chiedi conferma prima di ogni elaborazione AI
         </label>

@@ -13,10 +13,16 @@ export function invalidateAiSettings() {
   confirmCache = null;
 }
 
+export class AiError extends Error {
+  constructor(message: string, public status: number, public code?: string) {
+    super(message);
+  }
+}
+
 /** Chiama un endpoint AI; chiede conferma se l'utente l'ha impostato. */
 export async function aiPost<T>(endpoint: string, body: unknown, label: string): Promise<T> {
   if (!navigator.onLine) throw new Error("Serve una connessione a Internet per usare l'AI.");
-  if ((await needsConfirm()) && !window.confirm(`Avviare l'elaborazione AI: ${label}?\n(Ha un piccolo costo.)`)) {
+  if ((await needsConfirm()) && !window.confirm(`Avviare l'elaborazione AI: ${label}?\n(Usa la quota gratuita giornaliera di Gemini.)`)) {
     throw new Error("Annullato");
   }
   const res = await fetch(`/api/ai/${endpoint}`, {
@@ -25,6 +31,6 @@ export async function aiPost<T>(endpoint: string, body: unknown, label: string):
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({ error: `Errore ${res.status}` }));
-  if (!res.ok) throw new Error(data.error || `Errore ${res.status}`);
+  if (!res.ok) throw new AiError(data.error || `Errore ${res.status}`, res.status, data.code);
   return data as T;
 }

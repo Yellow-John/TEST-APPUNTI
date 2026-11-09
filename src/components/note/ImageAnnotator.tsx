@@ -1,7 +1,7 @@
 "use client";
 import { ArrowUpRight, Circle, Highlighter, Pen, RotateCcw, Square, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { canvasToBlob, loadImage } from "@/lib/image";
+import { compressCanvas, loadImage } from "@/lib/image";
 import { fileUrl, uploadFile } from "@/lib/files";
 import { Modal } from "../Modal";
 
@@ -85,8 +85,8 @@ export function ImageAnnotator({ src, noteId, onSave, onClose }: { src: string; 
     if (!canvas.current) return;
     setSaving(true);
     try {
-      const blob = await canvasToBlob(canvas.current, "image/jpeg", 0.9);
-      const path = await uploadFile(blob, `notes/${noteId}`, "jpg");
+      const { blob, ext } = await compressCanvas(canvas.current, 0.82);
+      const path = await uploadFile(blob, `notes/${noteId}`, ext);
       onSave(fileUrl(path));
     } catch (e) {
       alert((e as Error).message);

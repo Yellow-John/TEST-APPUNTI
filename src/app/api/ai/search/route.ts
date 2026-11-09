@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aiErrorResponse, callClaudeJSON } from "@/lib/ai/claude";
+import { aiErrorResponse, callAIJSON } from "@/lib/ai/gemini";
 import { SEARCH_SCHEMA, SEARCH_SYSTEM } from "@/lib/ai/prompts";
 import { ftsSearch } from "@/lib/ai/retrieval";
 import { jsonError, requireUser } from "@/lib/server-auth";
@@ -13,15 +13,14 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return jsonError("Richiesta non valida");
   try {
-    const { terms } = await callClaudeJSON<{ terms: string[] }>({
+    const { terms } = await callAIJSON<{ terms: string[] }>({
       sb: auth.sb,
       userId: auth.user.id,
       feature: "ricerca",
       system: SEARCH_SYSTEM,
-      content: parsed.data.query,
+      parts: parsed.data.query,
       schema: SEARCH_SCHEMA,
-      effort: "low",
-      maxTokens: 2000,
+      tier: "lite",
     });
     const hits = await ftsSearch(auth.sb, [parsed.data.query, ...terms], 25);
     return Response.json({ terms, hits });

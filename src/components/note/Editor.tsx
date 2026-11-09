@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { fileUrl, uploadFile } from "@/lib/files";
+import { compressImage } from "@/lib/image";
 
 export type EditorHandle = {
   getSelection: () => string;
@@ -83,8 +84,8 @@ export const Editor = forwardRef<EditorHandle, Props>(function Editor({ value, o
     try {
       for (const f of Array.from(files)) {
         if (!f.type.startsWith("image/")) continue;
-        const ext = f.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
-        const path = await uploadFile(f, `notes/${noteId}`, ext);
+        const { blob, ext } = await compressImage(f);
+        const path = await uploadFile(blob, `notes/${noteId}`, ext);
         replaceSelection(`\n![${f.name.replace(/\.[^.]+$/, "")}](${fileUrl(path)})\n`);
       }
     } catch (e) {

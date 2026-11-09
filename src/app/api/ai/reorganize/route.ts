@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aiErrorResponse, callClaudeJSON } from "@/lib/ai/claude";
+import { aiErrorResponse, callAIJSON } from "@/lib/ai/gemini";
 import { MARKDOWN_SCHEMA, REORGANIZE_SYSTEM } from "@/lib/ai/prompts";
 import { jsonError, requireUser } from "@/lib/server-auth";
 
@@ -12,15 +12,14 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return jsonError("Richiesta non valida");
   try {
-    const result = await callClaudeJSON({
+    const result = await callAIJSON({
       sb: auth.sb,
       userId: auth.user.id,
       feature: "riordino",
       system: REORGANIZE_SYSTEM,
-      content: `<appunti>\n${parsed.data.content}\n</appunti>`,
+      parts: `<appunti>\n${parsed.data.content}\n</appunti>`,
       schema: MARKDOWN_SCHEMA,
-      effort: "low",
-      maxTokens: 64000,
+      maxOutputTokens: 65536,
     });
     return Response.json(result);
   } catch (e) {

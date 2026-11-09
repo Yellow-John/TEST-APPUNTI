@@ -1,6 +1,6 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type { Content } from "@google/genai";
 import { z } from "zod";
-import { aiErrorResponse, streamClaude } from "@/lib/ai/claude";
+import { aiErrorResponse, streamAI } from "@/lib/ai/gemini";
 import { CHAT_SYSTEM } from "@/lib/ai/prompts";
 import { ftsSearch } from "@/lib/ai/retrieval";
 import { jsonError, requireUser } from "@/lib/server-auth";
@@ -46,19 +46,17 @@ export async function POST(req: Request) {
       )
       .join("\n\n");
 
-    const history: Anthropic.Beta.BetaMessageParam[] = messages
+    const history: Content[] = messages
       .slice(0, -1)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
 
-    const stream = await streamClaude({
+    const stream = await streamAI({
       sb: auth.sb,
       userId: auth.user.id,
       feature: "chat",
       system: CHAT_SYSTEM,
       history,
-      content: `${context ? `I miei appunti pertinenti:\n${context}\n\n` : "(Nessun appunto pertinente trovato.)\n\n"}Domanda: ${question}`,
-      effort: "medium",
-      maxTokens: 16000,
+      parts: `${context ? `I miei appunti pertinenti:\n${context}\n\n` : "(Nessun appunto pertinente trovato.)\n\n"}Domanda: ${question}`,
     });
     return new Response(stream, {
       headers: {

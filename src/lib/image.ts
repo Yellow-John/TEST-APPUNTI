@@ -207,3 +207,25 @@ export function cropCanvas(src: HTMLCanvasElement, r: Crop): HTMLCanvasElement {
   c.getContext("2d")!.drawImage(src, x, y, c.width, c.height, 0, 0, c.width, c.height);
   return c;
 }
+
+/**
+ * Comprime un canvas per risparmiare spazio (1 GB gratuito su Supabase):
+ * WebP se il browser lo supporta, altrimenti JPEG. Restituisce anche l'estensione.
+ */
+export async function compressCanvas(c: HTMLCanvasElement, quality = 0.78): Promise<{ blob: Blob; ext: string }> {
+  const webp = await canvasToBlob(c, "image/webp", quality).catch(() => null);
+  if (webp && webp.type === "image/webp") return { blob: webp, ext: "webp" };
+  return { blob: await canvasToBlob(c, "image/jpeg", quality), ext: "jpg" };
+}
+
+/** Ridimensiona e comprime un'immagine qualsiasi (foto incollate, inserite, annotate). */
+export async function compressImage(file: Blob, maxSide = 1600): Promise<{ blob: Blob; ext: string }> {
+  if (file.type === "image/gif" || file.type === "image/svg+xml") return { blob: file, ext: file.type === "image/gif" ? "gif" : "svg" };
+  const img = await loadImage(file);
+  const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * scale);
+  c.height = Math.round(img.naturalHeight * scale);
+  c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height);
+  return compressCanvas(c);
+}

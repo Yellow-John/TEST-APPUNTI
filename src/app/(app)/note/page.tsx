@@ -137,6 +137,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
   }, [save]);
 
   async function suggestTags() {
+    if (note.is_locked) return alert("Le note bloccate non vengono mai inviate all'AI.");
     setSuggesting(true);
     try {
       const nbs = notebooks.filter((n) => !n.deleted_at);
@@ -255,6 +256,8 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
                   className={`btn !px-2.5 ${aiOpen ? "!border-accent !text-accent" : ""}`}
                   onClick={() => setAiOpen(!aiOpen)}
                   aria-label="Assistente AI"
+                  disabled={note.is_locked}
+                  title={note.is_locked ? "Le note bloccate non vengono mai inviate all'AI" : "Assistente AI"}
                 >
                   <Sparkles size={16} className="text-accent" />
                   <span className="hidden sm:inline">AI</span>
@@ -401,7 +404,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
       </div>
 
       {/* pannello AI: laterale su desktop, a schermo intero su mobile */}
-      {aiOpen && (
+      {aiOpen && !note.is_locked && (
         <div className="no-print fixed inset-0 z-40 md:static md:inset-auto md:z-auto md:w-96 md:shrink-0 md:border-l md:border-line">
           <div className="sticky top-0 h-dvh md:h-[100dvh]">
             <AiPanel

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aiErrorResponse, callClaude } from "@/lib/ai/claude";
+import { aiErrorResponse, callAI } from "@/lib/ai/gemini";
 import { EXPLAIN_SYSTEM } from "@/lib/ai/prompts";
 import { jsonError, requireUser } from "@/lib/server-auth";
 
@@ -11,14 +11,13 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json());
   if (!parsed.success) return jsonError("Richiesta non valida");
   try {
-    const text = await callClaude({
+    const text = await callAI({
       sb: auth.sb,
       userId: auth.user.id,
       feature: "spiegazione",
       system: EXPLAIN_SYSTEM,
-      content: `${parsed.data.context ? `Contesto (dagli appunti):\n${parsed.data.context}\n\n` : ""}Spiegami in modo semplice:\n${parsed.data.text}`,
-      effort: "low",
-      maxTokens: 8000,
+      parts: `${parsed.data.context ? `Contesto (dagli appunti):\n${parsed.data.context}\n\n` : ""}Spiegami in modo semplice:\n${parsed.data.text}`,
+      tier: "lite",
     });
     return Response.json({ explanation: text });
   } catch (e) {

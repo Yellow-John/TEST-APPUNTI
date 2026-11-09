@@ -40,7 +40,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   // asset statici di Next
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || /\.(woff2?|png|svg|css|js)$/.test(url.pathname)) {
+  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || url.pathname.startsWith("/tesseract/") || /\.(woff2?|png|svg|css|js)$/.test(url.pathname)) {
     e.respondWith(cacheFirst(ASSETS, req));
     return;
   }

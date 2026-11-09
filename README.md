@@ -1,8 +1,8 @@
 # Appunti
 
-App web installabile (PWA) per PC e telefono, sincronizzata in tempo reale, che trasforma le foto dei tuoi appunti in testo e li migliora con l'AI (Claude).
+App web installabile (PWA) per PC e telefono, sincronizzata in tempo reale, che trasforma le foto dei tuoi appunti in testo e li migliora con l'AI. **Costo: zero.**
 
-**Stack:** Next.js 15 · Supabase (database, login, file, realtime) · Claude API · IndexedDB per l'offline.
+**Stack (tutto su piani gratuiti):** Next.js 15 su Vercel Hobby · Supabase Free (database, login, file, realtime) · Google Gemini API (piano gratuito) · Tesseract.js (OCR nel browser) · IndexedDB per l'offline.
 
 ## Funzionalità
 
@@ -16,7 +16,7 @@ App web installabile (PWA) per PC e telefono, sincronizzata in tempo reale, che 
 | **Piattaforma** | Funziona offline e sincronizza al ritorno della rete · sincronizzazione in tempo reale tra dispositivi · installabile · "Condividi → Appunti" da galleria/browser · scorciatoie "Scatta", "Nuova", "Chat" · tema scuro, dimensione del testo |
 | **Condivisione** | Link in sola lettura o modificabile, commenti con citazione |
 | **Esportazione** | PDF, Word, Markdown, backup .zip completo (da salvare su Drive/Dropbox) |
-| **Sicurezza e costi** | Login con email/password, link via email, Google, Apple · note cifrate con PIN sul dispositivo (AES-256) · budget mensile per l'AI, registro dei costi, conferma prima di ogni elaborazione |
+| **Sicurezza** | Login con email/password, link via email, Google, Apple · note cifrate con PIN sul dispositivo (AES-256), mai inviate all'AI · contatore delle richieste AI, conferma prima di ogni elaborazione |
 
 ## Installazione (circa 15 minuti)
 
@@ -27,8 +27,9 @@ App web installabile (PWA) per PC e telefono, sincronizzata in tempo reale, che 
 4. (Facoltativo) **Authentication → Providers**: attiva Google e/o Apple.
 5. Dopo aver creato il tuo account, in **Authentication → Sign In / Providers** disattiva *Allow new users to sign up*: così l'app resta solo tua.
 
-### 2. Chiave Anthropic
-Crea una chiave su [console.anthropic.com](https://console.anthropic.com) e ricarica qualche euro di credito.
+### 2. Chiave Gemini (gratuita)
+1. Vai su [aistudio.google.com](https://aistudio.google.com) con il tuo account Google → **Get API key** → **Create API key**.
+2. **Non attivare la fatturazione** (*billing*) sul progetto: senza fatturazione Google non può addebitare nulla; quando la quota gratuita finisce, le richieste vengono semplicemente rifiutate fino al giorno dopo.
 
 ### 3. Avvio in locale
 ```bash
@@ -43,19 +44,22 @@ Apri http://localhost:3000.
 2. Inserisci le stesse variabili di `.env.local` in *Settings → Environment Variables*.
 3. Apri l'URL dal telefono → menu del browser → **Installa app** (Android) o **Condividi → Aggiungi a Home** (iPhone).
 
+Il file `vercel.json` attiva un controllo automatico giornaliero (`/api/keepalive`) che impedisce a Supabase di mettere in pausa il progetto gratuito dopo 7 giorni senza uso.
+
 > Le elaborazioni lunghe (PDF di molte pagine) possono richiedere alcuni minuti: le route AI hanno `maxDuration = 300`. Sul piano gratuito di Vercel il limite effettivo dipende dalla configurazione (*Fluid compute*).
 
-## Costi indicativi
-Con il modello predefinito (Claude Opus 5.5: 4 $ per milione di token in input, 20 $ in output):
-- foto di una pagina di appunti → circa 1-3 centesimi
-- riassunto intelligente di un PDF di 30 pagine → circa 10-30 centesimi
-- correzione di una nota → meno di 1 centesimo
+## Costi: zero, con questi limiti
+| Servizio | Limite del piano gratuito | Cosa succede se lo superi |
+|---|---|---|
+| **Gemini** | Un numero di richieste al giorno che Google cambia nel tempo (lo vedi in AI Studio → *Rate limits*) | L'app passa al modello "lite"; se anche quello è esaurito ti avvisa. Le foto si possono trascrivere senza AI con l'OCR nel browser (buono per il testo stampato, scarso con la scrittura a mano). La quota si rinnova ogni giorno |
+| **Supabase** | 500 MB di database (decine di migliaia di note), 1 GB di file | Le foto sono compresse (WebP, circa 100-350 KB a pagina: oltre 3.000 pagine in 1 GB) e i PDF importati vengono cancellati dopo l'elaborazione |
+| **Vercel** | Uso personale, funzioni fino a 300 secondi | Un PDF molto lungo può superare il tempo massimo: dividilo in parti |
 
-Per spendere meno imposta `ANTHROPIC_MODEL=claude-sonnet-5-5` (circa la metà). Il budget mensile si imposta in **Impostazioni**.
+**Privacy:** con il piano gratuito di Gemini, Google può usare i contenuti inviati all'AI (e farli leggere a revisori umani) per migliorare i suoi servizi. Le note bloccate con PIN non vengono mai inviate all'AI; evita di elaborare con l'AI appunti con dati personali o riservati.
 
 ## Architettura in breve
 - **Offline-first:** tutte le letture passano da IndexedDB (Dexie). Le modifiche vanno in una coda (`outbox`) e vengono inviate a Supabase appena c'è rete (`src/lib/sync.ts`).
 - **Conflitti:** vince l'ultima modifica, grazie a un trigger nel database che ignora gli aggiornamenti più vecchi di quelli salvati.
 - **Realtime:** Supabase notifica le modifiche fatte dagli altri dispositivi.
-- **AI:** solo lato server (`src/app/api/ai/*`), con la chiave mai esposta al browser. Ogni chiamata viene registrata con il suo costo, e il budget viene controllato prima di procedere.
+- **AI:** solo lato server (`src/app/api/ai/*` → `src/lib/ai/gemini.ts`), con la chiave mai esposta al browser. I compiti pesanti (foto, PDF, correzioni, chat) usano il modello Flash, quelli leggeri (tag, ricerca, spiegazioni) Flash-Lite, per far durare di più la quota. Se il modello principale esaurisce la quota, la richiesta viene ripetuta su quello leggero.
 - **File:** bucket privato `files`. Le immagini sono servite da `/api/file/...`, così il service worker può tenerle in cache per l'offline.
