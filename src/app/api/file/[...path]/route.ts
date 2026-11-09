@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { SUPABASE_URL } from "@/lib/supabase/env";
 import { supabaseServer } from "@/lib/supabase/server";
 
 // Serve i file privati dallo storage con un URL stabile (così il service worker può metterli in cache offline).
@@ -17,10 +18,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ path: string[] 
   if (user && filePath.startsWith(`${user.id}/`)) {
     const { data } = await sb.storage.from("files").download(filePath);
     blob = data;
-  } else if (token && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  } else if (token && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)) {
     const { data: note } = await sb.rpc("get_shared_note", { p_token: token }).maybeSingle<{ content: string }>();
     if (note && note.content.includes(filePath)) {
-      const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY);
+      const admin = createClient(SUPABASE_URL, (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)!);
       const { data } = await admin.storage.from("files").download(filePath);
       blob = data;
     }
