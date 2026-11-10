@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type Part, aiErrorResponse, blobToInlinePart, callAIJSON, storageFile } from "@/lib/ai/gemini";
+import { handwritingParts } from "@/lib/ai/handwriting";
 import { startNoteJob } from "@/lib/ai/jobs";
 import { OCR_SCHEMA, OCR_SYSTEM } from "@/lib/ai/prompts";
 import { jsonError, requireUser } from "@/lib/server-auth";
@@ -33,7 +34,8 @@ export async function POST(req: Request) {
       placeholderTitle: "Trascrizione in corso…",
       source: { type: "photo", files: paths, job: { kind: "ocr", paths, hint } },
       work: async () => {
-        const parts: Part[] = [];
+        // campioni della grafia, dizionario personale ed errori corretti in passato
+        const parts: Part[] = await handwritingParts(auth.sb, auth.user.id).catch(() => []);
         for (const [i, p] of paths.entries()) {
           parts.push({ text: `Pagina ${i} (foto ${i + 1}):` });
           parts.push(await blobToInlinePart(await storageFile(auth.sb, auth.user.id, p), "image/jpeg"));
@@ -51,7 +53,10 @@ export async function POST(req: Request) {
           title: r.title,
           content: r.markdown.trim(),
           tags: r.tags.map((t) => t.toLowerCase().replace(/^#/, "")),
-          source: { figures: r.figures.filter((f) => Array.isArray(f.box_2d) && f.box_2d.length === 4) },
+          source: {
+            figures: r.figures.filter((f) => Array.isArray(f.box_2d) && f.box_2d.length === 4),
+            ocr_original: r.markdown.trim(),
+          },
         };
       },
     });

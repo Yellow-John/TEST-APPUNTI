@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   ArrowLeft, ArrowRight, Camera, Crop as CropIcon, ImagePlus, Loader2, RotateCw, ScanLine, Sparkles, Trash2, Wand2, X,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AiError } from "@/lib/ai-client";
@@ -125,7 +126,10 @@ export default function CapturePage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-4 md:py-8">
       <h1 className="mb-1 text-2xl font-bold">Fotografa i tuoi appunti</h1>
-      <p className="mb-5 text-sm text-muted">Scatta o scegli una o più pagine: verranno raddrizzate, pulite dalle ombre e trasformate in testo.</p>
+      <p className="mb-5 text-sm text-muted">
+        Scatta o scegli una o più pagine: verranno raddrizzate, pulite dalle ombre e trasformate in testo.{" "}
+        <Link href="/grafia" className="text-accent underline">Insegna all&apos;AI la tua grafia</Link> per un riconoscimento migliore.
+      </p>
 
       <div className="grid grid-cols-3 gap-2">
         <button className="btn-primary flex-col !py-4" onClick={() => setScanner(true)}>

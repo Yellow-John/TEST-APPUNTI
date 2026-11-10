@@ -2,7 +2,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Archive, BookOpen, ChevronRight, FolderPlus, Hash, Inbox, MessageCircle, Network, Pencil,
-  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen,
+  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -122,6 +122,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           isActive({ view: "trash" }),
           notes.filter((n) => n.deleted_at && !isPurged(n)).length,
         )}
+        {item("/grafia", <PenTool size={16} />, "La mia grafia", pathname === "/grafia")}
         {item("/settings", <Settings size={16} />, "Impostazioni", pathname === "/settings")}
       </div>
     </nav>

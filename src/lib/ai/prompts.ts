@@ -12,7 +12,8 @@ Ricevi una o più foto di appunti (scritti a mano o stampati), in ordine di pagi
 - Per ogni disegno, diagramma, grafico o schema che non si può rendere come testo, inserisci nel punto giusto il segnaposto [[FIGURA:n]] (n = 1, 2, ...) e descrivilo nell'array "figures" con la pagina (0 = prima foto), il riquadro "box_2d" nel formato [ymin, xmin, ymax, xmax] normalizzato su 0-1000 e una breve didascalia. Includi un piccolo margine attorno alla figura.
 - Unisci le pagine in un unico documento continuo.
 - Proponi un titolo breve e da 1 a 5 tag (minuscoli, senza #).
-- Non correggere i contenuti: è una trascrizione.`;
+- Non correggere i contenuti: è una trascrizione.
+- Se ricevi campioni della grafia dell'utente, confronta con quelli ogni lettera dubbia delle foto da trascrivere. Tieni conto del dizionario personale e degli errori passati, ma trascrivi sempre ciò che è davvero scritto. Non trascrivere mai i campioni.`;
 
 export const OCR_SCHEMA = {
   type: "object",
