@@ -16,12 +16,12 @@ import { ShareDialog } from "@/components/note/ShareDialog";
 import { TagEditor } from "@/components/note/TagEditor";
 import { PinDialog } from "@/components/PinDialog";
 import { aiPost } from "@/lib/ai-client";
-import { decryptText, encryptText, pinSession } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { exportDocx, exportMarkdown, exportPdf } from "@/lib/export";
 import { fileUrl } from "@/lib/files";
 import { useWikiIndex } from "@/lib/hooks";
 import { cropPendingFigures } from "@/lib/jobs-client";
+import { decryptNote, encryptNote, lockNote, lockedAncestor, takeKey, unlockNotePermanently } from "@/lib/lock";
 import { extractWikiLinks } from "@/lib/markdown";
 import { createNote, createNotebook, noteTitle, restoreNote, trashNote, updateNote } from "@/lib/repo";
 import type { Note } from "@/lib/types";
@@ -55,9 +55,11 @@ export default function NotePage() {
 
 function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean }) {
   const router = useRouter();
-  const [title, setTitle] = useState(note.title);
+  const [title, setTitle] = useState(note.is_locked ? "" : note.title);
   const [content, setContent] = useState(note.is_locked ? "" : note.content);
   const [unlocked, setUnlocked] = useState(!note.is_locked);
+  // chiave della nota bloccata: solo in memoria e solo finché la nota resta aperta
+  const keyRef = useRef<CryptoKey | null>(null);
   const [mode, setMode] = useState<ViewMode>(() => {
     if (startInEdit || !note.content) return typeof window !== "undefined" && window.innerWidth >= 1024 ? "split" : "edit";
     return "preview";
@@ -65,13 +67,13 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
   const [aiOpen, setAiOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [share, setShare] = useState(false);
-  const [pinFor, setPinFor] = useState<null | "unlock" | "lock" | "remove">(null);
+  const [pinFor, setPinFor] = useState<null | "unlock" | "lock" | "remove" | "protect">(null);
   const [annotate, setAnnotate] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   const [showOriginals, setShowOriginals] = useState(false);
   const editor = useRef<EditorHandle>(null);
   const dirty = useRef(false);
-  const lastSaved = useRef({ title: note.title, content: note.content });
+  const lastSaved = useRef(note.is_locked ? { title: "", content: "" } : { title: note.title, content: note.content });
 
   const notebooks = useLiveQuery(() => db.notebooks.toArray(), []) ?? [];
   const allNotes = useLiveQuery(() => db.notes.toArray(), []) ?? EMPTY;
@@ -91,18 +93,48 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     if (note.source?.figures?.length) void cropPendingFigures(note);
   }, [note]);
 
-  // decifra se la chiave è già in memoria
+  // nota aperta da un quaderno appena sbloccato: la chiave arriva da lì (una sola volta)
   useEffect(() => {
-    if (note.is_locked && pinSession.get() && note.locked_payload) {
-      decryptText(pinSession.get()!, note.locked_payload)
-        .then((t) => {
-          setContent(t);
-          lastSaved.current.content = t;
-          setUnlocked(true);
-        })
-        .catch(() => {});
+    if (!note.is_locked) return;
+    const k = takeKey(note.id);
+    if (k) void openWith(k);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function openWith(key: CryptoKey) {
+    try {
+      const p = await decryptNote(key, note);
+      keyRef.current = key;
+      lastSaved.current = { title: p.title, content: p.content };
+      setTitle(p.title);
+      setContent(p.content);
+      setUnlocked(true);
+    } catch {
+      alert("Impossibile decifrare la nota con questo PIN.");
     }
-  }, [note.is_locked, note.locked_payload]);
+  }
+
+  function closeLocked() {
+    keyRef.current = null;
+    lastSaved.current = { title: "", content: "" };
+    dirty.current = false;
+    setTitle("");
+    setContent("");
+    setUnlocked(false);
+  }
+
+  // si richiude da sola se l'app resta in background per più di un minuto
+  useEffect(() => {
+    if (!note.is_locked || !unlocked) return;
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.visibilityState === "hidden") hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 60_000) void save().then(closeLocked);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.is_locked, unlocked]);
 
   // aggiornamenti arrivati da un altro dispositivo mentre la nota è aperta (se non ci sono modifiche locali)
   useEffect(() => {
@@ -118,9 +150,9 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     if (!dirty.current) return;
     dirty.current = false;
     if (note.is_locked) {
-      const key = pinSession.get();
+      const key = keyRef.current;
       if (!key) return;
-      await updateNote(note.id, { title, locked_payload: await encryptText(key, content), content: "" });
+      await updateNote(note.id, { title: "", content: "", locked_payload: await encryptNote(key, { title, content }) });
     } else {
       await updateNote(note.id, { title, content });
     }
@@ -172,35 +204,36 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     const action = pinFor;
     setPinFor(null);
     if (action === "unlock") {
+      await openWith(key);
+    } else if (action === "lock") {
+      await lockWith(key, false);
+    } else if (action === "protect") {
+      await lockWith(key, true);
+    } else if (action === "remove") {
       try {
-        const t = note.locked_payload ? await decryptText(key, note.locked_payload) : "";
-        setContent(t);
-        lastSaved.current.content = t;
+        const p = note.is_locked ? await unlockNotePermanently(note, key) : { title, content };
+        keyRef.current = null;
+        lastSaved.current = p;
+        setTitle(p.title);
+        setContent(p.content);
         setUnlocked(true);
       } catch {
-        alert("Impossibile decifrare la nota con questo PIN.");
+        alert("PIN non valido per questa nota.");
       }
-    } else if (action === "lock") {
-      await lockWith(key);
-    } else if (action === "remove") {
-      const t = note.locked_payload ? await decryptText(key, note.locked_payload) : content;
-      await updateNote(note.id, { is_locked: false, locked_payload: null, content: t });
-      lastSaved.current.content = t;
-      setContent(t);
-      setUnlocked(true);
     }
   }
 
-  async function lockWith(key: CryptoKey) {
+  /** Cifra la nota. keepOpen: resta aperta (es. nota nuova in un quaderno bloccato); altrimenti si chiude subito. */
+  async function lockWith(key: CryptoKey, keepOpen: boolean) {
     dirty.current = false;
-    await updateNote(note.id, {
-      title,
-      is_locked: true,
-      locked_payload: await encryptText(key, content),
-      content: "",
-      share_mode: null,
-      share_token: null,
-    });
+    await lockNote(note, key, { title, content });
+    lastSaved.current = { title, content };
+    if (keepOpen) {
+      keyRef.current = key;
+      setUnlocked(true);
+    } else {
+      closeLocked();
+    }
   }
 
   async function createLinkedNote(t: string) {
@@ -209,6 +242,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
   }
 
   const trashed = !!note.deleted_at;
+  const lockedNb = lockedAncestor(note.notebook_id, notebooks);
   const activeNbs = notebooks.filter((n) => !n.deleted_at).sort((a, b) => a.name.localeCompare(b.name));
 
   if (note.is_locked && !unlocked) {
@@ -216,7 +250,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
       <div className="mx-auto flex max-w-md flex-col items-center gap-4 p-10 text-center">
         <Lock size={40} className="text-muted" />
         <h1 className="text-xl font-semibold">{note.title || "Nota bloccata"}</h1>
-        <p className="text-sm text-muted">Questa nota è cifrata. Inserisci il PIN per leggerla.</p>
+        <p className="text-sm text-muted">Questa nota è protetta da PIN. Inseriscilo per leggerla.</p>
         <button className="btn-primary" onClick={() => setPinFor("unlock")}>
           <LockOpen size={16} /> Sblocca
         </button>
@@ -285,11 +319,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
                     {note.is_locked ? (
                       <MenuItem icon={<LockOpen size={15} />} label="Rimuovi blocco PIN" onClick={() => setPinFor("remove")} />
                     ) : (
-                      <MenuItem icon={<Lock size={15} />} label="Blocca con PIN" onClick={() => {
-                        const key = pinSession.get();
-                        if (key) void lockWith(key);
-                        else setPinFor("lock");
-                      }} />
+                      <MenuItem icon={<Lock size={15} />} label="Blocca con PIN" onClick={() => setPinFor("lock")} />
                     )}
                     <div className="my-1 border-t border-line" />
                     <MenuItem icon={<FileText size={15} />} label="Esporta PDF" onClick={async () => { await save(); exportPdf(note); }} />
@@ -349,8 +379,16 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
               <option value="__new">+ Nuovo quaderno…</option>
             </select>
             <TagEditor tags={note.tags} onChange={(tags) => updateNote(note.id, { tags })} allTags={allTags} onSuggest={suggestTags} suggesting={suggesting} />
-            {note.is_locked && <span className="chip"><Lock size={11} /> Cifrata</span>}
+            {note.is_locked && <span className="chip"><Lock size={11} /> Protetta da PIN</span>}
           </div>
+
+          {!note.is_locked && !trashed && lockedNb && (
+            <div className="no-print mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              <Lock size={15} />
+              <span className="flex-1">Il quaderno «{lockedNb.name}» è protetto da PIN, ma questa nota non lo è ancora.</span>
+              <button className="btn-primary !py-1 text-xs" onClick={() => setPinFor("protect")}>Proteggi con PIN</button>
+            </div>
+          )}
 
           <div className={`mt-4 grid gap-4 ${mode === "split" ? "lg:grid-cols-2" : ""}`}>
             {(mode === "edit" || mode === "split") && (

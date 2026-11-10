@@ -1,9 +1,11 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Archive, Hash, Lock, Pin, Search, Sparkles, Star, Trash2, Undo2, X } from "lucide-react";
+import { Archive, Hash, Lock, LockOpen, Pin, Search, Sparkles, Star, Trash2, Undo2, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { PinDialog } from "@/components/PinDialog";
+import { decryptNote, handKey, lockedAncestor } from "@/lib/lock";
 import { aiPost } from "@/lib/ai-client";
 import { db } from "@/lib/db";
 import { isPurged } from "@/lib/export";
@@ -22,6 +24,9 @@ export default function NotesPage() {
   const [semantic, setSemantic] = useState<{ terms: string[]; hits: Hit[] } | null>(null);
   const [searching, setSearching] = useState(false);
   const [err, setErr] = useState("");
+  // quaderno bloccato aperto con il PIN: chiave e titoli decifrati restano solo in memoria
+  const [nbUnlock, setNbUnlock] = useState<{ nb: string; key: CryptoKey; titles: Map<string, string> } | null>(null);
+  const [askPin, setAskPin] = useState(false);
 
   const notes = useLiveQuery(() => db.notes.toArray(), []);
   const notebooks = useLiveQuery(() => db.notebooks.toArray(), []);
@@ -67,6 +72,33 @@ export default function NotesPage() {
     return l.sort((a, b) => Number(b.is_pinned) - Number(a.is_pinned) || b.updated_at.localeCompare(a.updated_at));
   }, [notes, view, nb, nbIds, tag, q]);
 
+  // il quaderno sbloccato si richiude cambiando quaderno o dopo più di un minuto in background
+  useEffect(() => {
+    setNbUnlock((u) => (u && u.nb !== nb ? null : u));
+  }, [nb]);
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.visibilityState === "hidden") hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 60_000) setNbUnlock(null);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  const lockedNb = nb && nb !== "none" ? lockedAncestor(nb, notebooks ?? []) : null;
+  const nbOpen = !lockedNb || nbUnlock?.nb === nb;
+
+  // titoli delle note cifrate del quaderno sbloccato
+  useEffect(() => {
+    if (!nbUnlock || nbUnlock.nb !== nb) return;
+    const missing = list.filter((n) => n.is_locked && !nbUnlock.titles.has(n.id));
+    if (!missing.length) return;
+    void Promise.all(
+      missing.map(async (n) => [n.id, await decryptNote(nbUnlock.key, n).then((p) => p.title || "Senza titolo").catch(() => "Nota bloccata")] as const),
+    ).then((pairs) => setNbUnlock((u) => (u ? { ...u, titles: new Map([...u.titles, ...pairs]) } : u)));
+  }, [list, nbUnlock, nb]);
+
   const title =
     view === "trash" ? "Cestino" : view === "archive" ? "Archivio" : view === "fav" ? "Preferiti" :
     nb === "none" ? "Senza quaderno" : nb ? nbMap.get(nb)?.name ?? "Quaderno" : tag ? `#${tag}` : "Tutte le note";
@@ -84,9 +116,36 @@ export default function NotesPage() {
     }
   }
 
+  if (!nbOpen) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 p-10 text-center">
+        <Lock size={40} className="text-muted" />
+        <h1 className="text-xl font-semibold">{title}</h1>
+        <p className="text-sm text-muted">
+          {lockedNb && lockedNb.id !== nb ? `Fa parte del quaderno «${lockedNb.name}», protetto da PIN.` : "Questo quaderno è protetto da PIN."} Inseriscilo per vedere le note.
+        </p>
+        <button className="btn-primary" onClick={() => setAskPin(true)}>
+          <LockOpen size={16} /> Sblocca
+        </button>
+        {askPin && (
+          <PinDialog
+            onClose={() => setAskPin(false)}
+            onKey={(key) => {
+              setAskPin(false);
+              setNbUnlock({ nb: nb!, key, titles: new Map() });
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-4 md:py-8">
-      <h1 className="mb-4 text-2xl font-bold">{title}</h1>
+      <h1 className="mb-4 flex items-center gap-2 text-2xl font-bold">
+        {title}
+        {lockedNb && <Lock size={18} className="text-muted" aria-label="Protetto da PIN" />}
+      </h1>
 
       {view !== "trash" && (
         <div className="mb-4">
@@ -154,7 +213,14 @@ export default function NotesPage() {
       ) : (
         <ul className="space-y-2">
           {list.map((n) => (
-            <NoteRow key={n.id} n={n} trash={view === "trash"} nbName={n.notebook_id ? nbMap.get(n.notebook_id)?.name : undefined} />
+            <NoteRow
+              key={n.id}
+              n={n}
+              trash={view === "trash"}
+              nbName={n.notebook_id ? nbMap.get(n.notebook_id)?.name : undefined}
+              shownTitle={nbUnlock?.nb === nb ? nbUnlock.titles.get(n.id) : undefined}
+              onOpen={nbUnlock?.nb === nb && n.is_locked ? () => handKey(n.id, nbUnlock.key) : undefined}
+            />
           ))}
         </ul>
       )}
@@ -173,15 +239,15 @@ export default function NotesPage() {
   );
 }
 
-function NoteRow({ n, trash, nbName }: { n: Note; trash: boolean; nbName?: string }) {
-  const preview = n.is_locked ? "Nota bloccata" : stripMarkdown(n.content).slice(0, 160);
+function NoteRow({ n, trash, nbName, shownTitle, onOpen }: { n: Note; trash: boolean; nbName?: string; shownTitle?: string; onOpen?: () => void }) {
+  const preview = n.is_locked ? "Protetta da PIN" : stripMarkdown(n.content).slice(0, 160);
   return (
     <li className="card group relative p-3 transition hover:border-accent">
-      <Link href={`/note?id=${n.id}`} className="block pr-16">
+      <Link href={`/note?id=${n.id}`} onClick={onOpen} className="block pr-16">
         <div className="flex items-center gap-1.5">
           {n.is_pinned && <Pin size={13} className="shrink-0 text-accent" />}
           {n.is_locked && <Lock size={13} className="shrink-0 text-muted" />}
-          <span className="truncate font-semibold">{noteTitle(n)}</span>
+          <span className="truncate font-semibold">{shownTitle ?? noteTitle(n)}</span>
           {n.is_favorite && <Star size={13} className="shrink-0 fill-amber-400 text-amber-400" />}
           {n.source?.status === "processing" && <span className="chip shrink-0 !text-accent">⏳ in elaborazione</span>}
           {n.source?.status === "error" && <span className="chip shrink-0 !text-danger">⚠️ errore</span>}

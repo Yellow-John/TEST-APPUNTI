@@ -213,3 +213,6 @@ create policy "own files update" on storage.objects for update
 drop policy if exists "own files delete" on storage.objects;
 create policy "own files delete" on storage.objects for delete
   using (bucket_id = 'files' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ---------- Aggiunte successive (incluse qui per le nuove installazioni) ----------
+alter table public.notebooks add column if not exists is_locked boolean not null default false;

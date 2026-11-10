@@ -2,7 +2,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Archive, ChevronRight, FolderPlus, Hash, Inbox, MessageCircle, Network, Pencil,
-  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool,
+  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool, Lock, LockOpen, MoreHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -11,7 +11,9 @@ import { db } from "@/lib/db";
 import { isPurged } from "@/lib/export";
 import { createNotebook, deleteNotebook, updateNotebook } from "@/lib/repo";
 import type { Notebook } from "@/lib/types";
+import { lockNotebook, unlockNotebook } from "@/lib/lock";
 import { AppLogo } from "./AppLogo";
+import { PinDialog } from "./PinDialog";
 import { SyncBadge } from "./SyncBadge";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -161,6 +163,8 @@ function NotebookRow({
 }) {
   const hasChildren = all.some((n) => n.parent_id === nb.id);
   const [open, setOpen] = useState(true);
+  const [menu, setMenu] = useState(false);
+  const [pin, setPin] = useState<null | "lock" | "unlock">(null);
   const active = currentNb === nb.id;
   return (
     <>
@@ -179,40 +183,75 @@ function NotebookRow({
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: nb.color ?? "var(--accent)" }} />
           <span className="truncate">{nb.name}</span>
         </Link>
-        <span className="text-xs text-muted group-hover:hidden">{counts.get(nb.id) || ""}</span>
-        <div className="hidden items-center group-hover:flex">
+        {nb.is_locked && <Lock size={12} className="shrink-0 text-muted" aria-label="Protetto da PIN" />}
+        <span className="text-xs text-muted md:group-hover:hidden">{counts.get(nb.id) || ""}</span>
+        <div className="relative">
           <button
-            className="p-1 text-muted hover:text-fg"
-            aria-label="Nuovo sotto-quaderno"
-            onClick={async () => {
-              const name = prompt(`Nuovo sotto-quaderno in "${nb.name}"`);
-              if (name?.trim()) await createNotebook(name.trim(), nb.id);
-            }}
+            className="p-1 text-muted hover:text-fg md:hidden md:group-hover:block"
+            aria-label={`Azioni sul quaderno ${nb.name}`}
+            aria-expanded={menu}
+            onClick={() => setMenu(!menu)}
           >
-            <Plus size={13} />
+            <MoreHorizontal size={15} />
           </button>
-          <button
-            className="p-1 text-muted hover:text-fg"
-            aria-label="Rinomina"
-            onClick={async () => {
-              const name = prompt("Nuovo nome", nb.name);
-              if (name?.trim()) await updateNotebook(nb.id, { name: name.trim() });
-            }}
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            className="p-1 text-muted hover:text-danger"
-            aria-label="Elimina quaderno"
-            onClick={async () => {
-              if (confirm(`Eliminare il quaderno "${nb.name}"? Le note non verranno cancellate.`)) await deleteNotebook(nb.id);
-            }}
-          >
-            <Trash2 size={13} />
-          </button>
+          {menu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenu(false)} />
+              <div className="card absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden py-1 text-sm shadow-xl" role="menu" onClick={() => setMenu(false)}>
+                <NbItem icon={<Plus size={14} />} label="Nuovo sotto-quaderno" onClick={async () => {
+                  const name = prompt(`Nuovo sotto-quaderno in "${nb.name}"`);
+                  if (name?.trim()) await createNotebook(name.trim(), nb.id);
+                }} />
+                <NbItem icon={<Pencil size={14} />} label="Rinomina" onClick={async () => {
+                  const name = prompt("Nuovo nome", nb.name);
+                  if (name?.trim()) await updateNotebook(nb.id, { name: name.trim() });
+                }} />
+                {nb.is_locked ? (
+                  <NbItem icon={<LockOpen size={14} />} label="Rimuovi blocco PIN" onClick={() => setPin("unlock")} />
+                ) : (
+                  <NbItem icon={<Lock size={14} />} label="Blocca con PIN" onClick={() => {
+                    if (confirm(`Bloccare il quaderno "${nb.name}"?\n\nTutte le sue note (anche nei sotto-quaderni) verranno cifrate con il tuo PIN e per aprirle servirà il PIN.`)) setPin("lock");
+                  }} />
+                )}
+                <div className="my-1 border-t border-line" />
+                <NbItem danger icon={<Trash2 size={14} />} label="Elimina quaderno" onClick={async () => {
+                  if (confirm(`Eliminare il quaderno "${nb.name}"? Le note non verranno cancellate.`)) await deleteNotebook(nb.id);
+                }} />
+              </div>
+            </>
+          )}
         </div>
       </div>
+      {pin && (
+        <PinDialog
+          onClose={() => setPin(null)}
+          onKey={async (key) => {
+            const action = pin;
+            setPin(null);
+            try {
+              if (action === "lock") {
+                const n = await lockNotebook(nb, key);
+                alert(`Quaderno "${nb.name}" protetto: ${n} note cifrate.`);
+              } else {
+                const r = await unlockNotebook(nb, key);
+                alert(r.failed ? `Blocco rimosso, ma ${r.failed} note non si sono potute decifrare con questo PIN.` : `Blocco rimosso dal quaderno "${nb.name}".`);
+              }
+            } catch (e) {
+              alert((e as Error).message);
+            }
+          }}
+        />
+      )}
       {open && <NotebookTree all={all} parent={nb.id} depth={depth + 1} counts={counts} currentNb={currentNb} onNavigate={onNavigate} />}
     </>
+  );
+}
+
+function NbItem({ icon, label, onClick, danger }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button role="menuitem" onClick={onClick} className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-panel-2 ${danger ? "text-danger" : "text-fg"}`}>
+      {icon}
+      {label}
+    </button>
   );
 }

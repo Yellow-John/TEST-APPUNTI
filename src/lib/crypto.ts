@@ -53,12 +53,3 @@ export async function verifyPin(key: CryptoKey, check: string) {
     return false;
   }
 }
-
-// chiave tenuta solo in memoria per la sessione corrente
-let sessionKey: CryptoKey | null = null;
-export const pinSession = {
-  get: () => sessionKey,
-  set: (k: CryptoKey | null) => {
-    sessionKey = k;
-  },
-};

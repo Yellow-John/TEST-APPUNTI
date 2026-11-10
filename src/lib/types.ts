@@ -4,6 +4,8 @@ export type Notebook = {
   name: string;
   color: string | null;
   position: number;
+  /** quaderno protetto da PIN: le sue note sono cifrate e l'elenco chiede il PIN */
+  is_locked?: boolean;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

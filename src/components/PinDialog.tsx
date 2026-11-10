@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { deriveKey, makePinCheck, newSalt, pinSession, verifyPin } from "@/lib/crypto";
+import { deriveKey, makePinCheck, newSalt, verifyPin } from "@/lib/crypto";
 import { supabase } from "@/lib/supabase/client";
 import { Modal } from "./Modal";
 
@@ -47,12 +47,10 @@ export function PinDialog({ onKey, onClose }: { onKey: (k: CryptoKey) => void; o
         const { error } = await supabase().from("user_settings").upsert({ user_id: u.user!.id, pin_salt: salt, pin_check: check });
         if (error) throw new Error(error.message);
         localStorage.setItem("pinSettings", JSON.stringify({ pin_salt: salt, pin_check: check }));
-        pinSession.set(key);
         onKey(key);
       } else {
         const key = await deriveKey(pin, settings!.pin_salt);
         if (!(await verifyPin(key, settings!.pin_check))) throw new Error("PIN errato.");
-        pinSession.set(key);
         onKey(key);
       }
     } catch (e) {

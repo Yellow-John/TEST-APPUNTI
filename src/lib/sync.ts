@@ -23,7 +23,9 @@ export function onSyncState(l: (s: SyncState) => void) {
 
 const NOTE_COLS =
   "id,notebook_id,title,content,tags,is_favorite,is_pinned,is_archived,is_locked,locked_payload,source,share_token,share_mode,created_at,updated_at,deleted_at,server_updated_at";
-const NB_COLS = "id,parent_id,name,color,position,created_at,updated_at,deleted_at,server_updated_at";
+// "*": include is_locked se la colonna esiste (script 0002), senza rompere la sincronizzazione se manca
+const NB_COLS = "*";
+let nbLockColumnMissing = false;
 
 /** Accoda una riga modificata localmente per l'invio al server. */
 export async function enqueue(table: Table, rowId: string) {
@@ -83,9 +85,24 @@ async function push() {
       table === "notes"
         ? await db.notes.bulkGet(ids)
         : await db.notebooks.bulkGet(ids);
-    const payload = rows.filter(Boolean);
+    let payload = rows.filter(Boolean) as object[];
+    if (table === "notebooks") {
+      // dati solo locali da non inviare; is_locked solo se la colonna esiste sul server
+      payload = payload.map((r) => {
+        const { user_id: _u, ...rest } = r as Record<string, unknown>;
+        void _u;
+        if (nbLockColumnMissing) delete rest.is_locked;
+        return rest;
+      });
+    }
     if (payload.length) {
-      const { error } = await supabase().from(table).upsert(payload as object[]);
+      let { error } = await supabase().from(table).upsert(payload);
+      if (error && table === "notebooks" && /is_locked/.test(error.message)) {
+        // script 0002 non ancora eseguito: si sincronizza senza il blocco dei quaderni
+        nbLockColumnMissing = true;
+        console.warn("Colonna notebooks.is_locked mancante: esegui supabase/migrations/0002_notebook_lock.sql");
+        ({ error } = await supabase().from(table).upsert(payload.map((r) => { const { is_locked: _l, ...rest } = r as Record<string, unknown>; void _l; return rest; })));
+      }
       if (error) throw error;
     }
     const done = items.filter((i) => i.table === table).map((i) => i.id!);
@@ -122,8 +139,9 @@ async function applyRemote(table: Table, rows: Record<string, unknown>[]) {
   );
   await db.transaction("rw", db.notes, db.notebooks, async () => {
     for (const r of rows) {
-      const { server_updated_at: _s, ...row } = r;
+      const { server_updated_at: _s, user_id: _u, ...row } = r;
       void _s;
+      void _u;
       const id = row.id as string;
       const local =
         table === "notes" ? await db.notes.get(id) : await db.notebooks.get(id);

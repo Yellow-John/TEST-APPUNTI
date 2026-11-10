@@ -91,8 +91,9 @@ export async function deleteNotebook(id: string) {
 }
 
 /** Testo leggibile della nota (titolo o prima riga). */
-export function noteTitle(n: Pick<Note, "title" | "content">): string {
+export function noteTitle(n: Pick<Note, "title" | "content"> & { is_locked?: boolean }): string {
   if (n.title.trim()) return n.title.trim();
+  if (n.is_locked) return "Nota bloccata";
   const first = n.content.split("\n").find((l) => l.trim());
   return first ? first.replace(/^#+\s*/, "").slice(0, 80) : "Nota senza titolo";
 }
