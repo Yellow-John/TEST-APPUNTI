@@ -2,6 +2,7 @@ import { ApiError, FileState, GoogleGenAI, createPartFromUri, type Content, type
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Modelli del piano gratuito di Gemini. Gli alias "-latest" vengono aggiornati da Google a ogni nuova versione.
+// Se un nome non esiste più, l'app chiede a Google l'elenco dei modelli disponibili e sceglie il Flash più recente.
 export const MODEL_MAIN = process.env.GEMINI_MODEL || "gemini-flash-latest"; // foto, PDF, correzioni, chat
 export const MODEL_LITE = process.env.GEMINI_MODEL_LITE || "gemini-flash-lite-latest"; // compiti leggeri + riserva
 
@@ -11,7 +12,8 @@ export type Tier = "main" | "lite";
 let _ai: GoogleGenAI | null = null;
 export function gemini() {
   if (!process.env.GEMINI_API_KEY) throw new ConfigError("Manca GEMINI_API_KEY nelle variabili d'ambiente.");
-  if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // v1beta: necessaria per gli alias "-latest", l'output JSON con schema e la Files API (l'SDK usa "v1" di default)
+  if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { apiVersion: "v1beta" } });
   return _ai;
 }
 
@@ -45,16 +47,73 @@ function config(c: AiCall) {
 }
 
 const isQuota = (e: unknown) => e instanceof ApiError && e.status === 429;
+const isModelMissing = (e: unknown) => e instanceof ApiError && e.status === 404;
+
+// ---------- scelta automatica del modello ----------
+const resolved: Partial<Record<Tier, string>> = {};
+let available: Promise<string[]> | null = null;
+
+/** Modelli che la chiave può usare con generateContent (elenco gratuito, letto una volta per istanza). */
+function listModels(): Promise<string[]> {
+  if (!available) {
+    available = (async () => {
+      const out: string[] = [];
+      const pager = await gemini().models.list({ config: { pageSize: 200 } });
+      for await (const m of pager) {
+        if (m.name && (m.supportedActions ?? []).includes("generateContent")) out.push(m.name.replace(/^models\//, ""));
+      }
+      return out;
+    })().catch((e) => {
+      available = null;
+      throw e;
+    });
+  }
+  return available;
+}
+
+const version = (n: string) => n.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? "0";
+const byVersionDesc = (a: string, b: string) => parseFloat(version(b)) - parseFloat(version(a));
+
+/** Sceglie il miglior Flash (o Flash-Lite) disponibile, preferendo le versioni stabili e più recenti. */
+async function pickFromList(tier: Tier): Promise<string> {
+  const all = await listModels();
+  const lite = tier === "lite";
+  const ok = (n: string) => /^gemini-/.test(n) && n.includes("flash") && n.includes("lite") === lite && !/image|tts|audio|live|embedding|thinking/.test(n);
+  const cands = all.filter(ok);
+  const stable = cands.filter((n) => !/preview|exp/.test(n)).sort(byVersionDesc);
+  const best = (lite ? ["gemini-flash-lite-latest"] : ["gemini-flash-latest"]).find((a) => all.includes(a)) ?? stable[0] ?? cands.sort(byVersionDesc)[0];
+  if (!best) {
+    if (lite) return pickFromList("main");
+    throw new ConfigError("Nessun modello Gemini Flash disponibile per questa chiave API.");
+  }
+  return best;
+}
+
+function modelFor(tier: Tier) {
+  return resolved[tier] ?? (tier === "lite" ? MODEL_LITE : MODEL_MAIN);
+}
+
+/** Esegue fn sul modello del livello indicato; se il nome non esiste più, sceglie un modello disponibile e riprova. */
+async function onTier<T>(tier: Tier, fn: (model: string) => Promise<T>): Promise<T> {
+  try {
+    return await fn(modelFor(tier));
+  } catch (e) {
+    if (!isModelMissing(e) || resolved[tier]) throw e;
+    resolved[tier] = await pickFromList(tier);
+    console.warn(`Modello Gemini non trovato, uso ${resolved[tier]} (${tier})`);
+    return fn(resolved[tier]!);
+  }
+}
 
 /** Esegue fn sul modello principale; se la quota gratuita è finita, riprova sul modello "lite". */
 async function withFallback<T>(c: AiCall, fn: (model: string) => Promise<T>): Promise<T> {
-  const first = c.tier === "lite" ? MODEL_LITE : MODEL_MAIN;
+  const tier: Tier = c.tier ?? "main";
   try {
-    return await fn(first);
+    return await onTier(tier, fn);
   } catch (e) {
-    if (isQuota(e) && first !== MODEL_LITE) {
+    if (isQuota(e) && tier === "main") {
       try {
-        return await fn(MODEL_LITE);
+        return await onTier("lite", fn);
       } catch (e2) {
         if (isQuota(e2)) throw quotaError();
         throw e2;
