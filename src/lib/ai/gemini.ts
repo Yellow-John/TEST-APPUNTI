@@ -1,6 +1,6 @@
 import { ApiError, FileState, GoogleGenAI, createPartFromUri, type Content, type GenerateContentResponse, type Part } from "@google/genai";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { FreeLLMError, freeFirst, UnsupportedInput, freeChat, freeEnabled, freeStream } from "./freellm";
+import { type Candidate, CompatError, UnsupportedInput, compatChain, compatChat, compatStream, hasUnsupported, pauseAfter } from "./compat";
 
 // Piano gratuito di Gemini: la quota giornaliera è PER MODELLO (es. 20 richieste/giorno sul Flash più recente).
 // Per questo l'app non usa un solo modello ma una catena: tutti i Flash stabili disponibili per la chiave,
@@ -124,7 +124,7 @@ function cooldownFor(e: unknown): number {
   return 2 * 60_000; // sovraccarico / errore del server
 }
 
-const DEADLINE_MS = 200_000; // oltre, non si prova un altro modello: Vercel interrompe a 300 s
+const DEADLINE_MS = 120_000; // poi si passa agli altri provider; Vercel interrompe a 300 s
 
 /** Esegue fn sul primo modello disponibile della catena, passando al successivo se esaurito/sovraccarico/lento. */
 async function withFallback<T>(c: AiCall, fn: (model: string) => Promise<T>): Promise<T> {
@@ -162,35 +162,85 @@ export async function logUsage(sb: SupabaseClient, userId: string, feature: stri
   await sb.from("ai_usage").insert({ user_id: userId, feature, model, input_tokens: input, output_tokens: output, cost_usd: 0 });
 }
 
-/** Prova i provider in ordine: Gemini (catena di modelli) e, se configurato, FreeLLMAPI. */
-async function viaProviders<T>(gem: () => Promise<T>, free: () => Promise<T>): Promise<T> {
-  if (!freeEnabled()) return gem();
-  const order = freeFirst() ? [free, gem] : [gem, free];
+const TOTAL_DEADLINE_MS = 220_000;
+const freeFirst = () => (process.env.FREELLMAPI_MODE ?? "fallback") === "first";
+
+/** Interpreta un JSON anche se arriva dentro un blocco ```json o con testo intorno. */
+export function parseJsonLoose<T>(text: string): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        return JSON.parse(m[0]) as T;
+      } catch {
+        /* sotto */
+      }
+    }
+    throw new Error("Risposta dell'AI non in formato JSON valido.");
+  }
+}
+
+/**
+ * Prova in ordine: Gemini (tutti i suoi modelli gratuiti), poi gli altri provider gratuiti configurati
+ * (Mistral, Groq, OpenRouter, Cerebras, FreeLLMAPI). Con FREELLMAPI_MODE=first, FreeLLMAPI va per primo.
+ * `accept` può rifiutare una risposta (es. JSON non valido) per passare al modello successivo.
+ */
+async function viaProviders<T>(
+  c: AiCall,
+  gem: () => Promise<T>,
+  other: (cand: Candidate) => Promise<T>,
+  accept?: (r: T) => void,
+): Promise<T> {
+  const start = Date.now();
+  const cands = hasUnsupported(c) ? [] : await compatChain(c).catch(() => [] as Candidate[]);
+  const free = cands.filter((x) => x.provider.id === "freellmapi");
+  const rest = cands.filter((x) => x.provider.id !== "freellmapi");
+  type Step = { run: () => Promise<T>; cand?: Candidate };
+  const g: Step = { run: gem };
+  const steps: Step[] = freeFirst()
+    ? [...free.map((cand) => ({ run: () => other(cand), cand })), g, ...rest.map((cand) => ({ run: () => other(cand), cand }))]
+    : [g, ...cands.map((cand) => ({ run: () => other(cand), cand }))];
   const errors: unknown[] = [];
-  for (const run of order) {
+  for (const step of steps) {
+    if (errors.length && Date.now() - start > TOTAL_DEADLINE_MS) break;
     try {
-      return await run();
+      const r = await step.run();
+      accept?.(r);
+      return r;
     } catch (e) {
-      if (e instanceof RefusalError || e instanceof ConfigError) throw e;
       errors.push(e);
-      console.warn(`Provider AI non disponibile: ${(e as Error).message?.slice(0, 160)}`);
+      if (step.cand) pauseAfter(step.cand, e);
+      console.warn(`AI non disponibile (${step.cand ? `${step.cand.provider.id}:${step.cand.model}` : "gemini"}): ${(e as Error).message?.slice(0, 160)}`);
     }
   }
-  // l'errore più utile: quota, altrimenti quello di Gemini (FreeLLMAPI può non supportare l'input, es. PDF)
   const useful = errors.filter((e) => !(e instanceof UnsupportedInput));
-  throw useful.find((e) => e instanceof QuotaError) ?? useful[useful.length - 1] ?? errors[0];
+  if (steps.length > 1 && useful.every((e) => e instanceof QuotaError || (e instanceof CompatError && [429, 500, 502, 503].includes(e.status)))) {
+    throw new QuotaError(
+      "Tutti i modelli AI gratuiti configurati hanno esaurito la quota o sono occupati. Riprova più tardi: le quote si rinnovano ogni giorno.",
+    );
+  }
+  throw useful.find((e) => e instanceof QuotaError) ?? useful[0] ?? errors[0];
+}
+
+async function callText(c: AiCall, accept?: (text: string) => void): Promise<string> {
+  return viaProviders(
+    c,
+    () => callGemini(c),
+    async (cand) => {
+      const r = await compatChat(cand, c);
+      accept?.(r.text); // prima di registrare: una risposta scartata non conta
+      await logUsage(c.sb, c.userId, c.feature, r.model, r.input, r.output);
+      return r.text;
+    },
+    accept,
+  );
 }
 
 /** Chiamata completa che restituisce il testo finale. */
 export async function callAI(c: AiCall): Promise<string> {
-  return viaProviders(
-    () => callGemini(c),
-    async () => {
-      const r = await freeChat(c);
-      await logUsage(c.sb, c.userId, c.feature, r.model, r.input, r.output);
-      return r.text;
-    },
-  );
+  return callText(c);
 }
 
 async function callGemini(c: AiCall): Promise<string> {
@@ -209,25 +259,23 @@ async function callGemini(c: AiCall): Promise<string> {
   });
 }
 
-/** Chiamata con output JSON strutturato. */
+/** Chiamata con output JSON strutturato: se un modello risponde con JSON non valido si prova il successivo. */
 export async function callAIJSON<T>(c: AiCall & { schema: Record<string, unknown> }): Promise<T> {
-  const text = await callAI(c);
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    // a volte il JSON arriva dentro un blocco ```json
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]) as T;
-    throw new Error("Risposta dell'AI non valida, riprova.");
-  }
+  let parsed: T | undefined;
+  await callText(c, (text) => {
+    parsed = parseJsonLoose<T>(text);
+    if (!parsed || typeof parsed !== "object") throw new Error("Risposta dell'AI non valida.");
+  });
+  return parsed as T;
 }
 
 /** Streaming del testo verso il browser (chat). */
 export async function streamAI(c: AiCall): Promise<ReadableStream<Uint8Array>> {
   const enc = new TextEncoder();
   const opened = await viaProviders<{ model: string; stream?: AsyncGenerator<GenerateContentResponse>; chunks?: AsyncGenerator<string> }>(
+    c,
     () => withFallback(c, async (model) => ({ model, stream: await gemini().models.generateContentStream({ model, contents: contents(c), config: config(c) }) })),
-    () => freeStream(c),
+    (cand) => compatStream(cand, c),
   );
   if (opened.chunks) {
     const { chunks, model } = opened;
@@ -277,9 +325,9 @@ export function aiErrorInfo(e: unknown): { message: string; status: number; code
   if (e instanceof QuotaError) return { message: e.message, status: 429, code: "quota" };
   if (e instanceof RefusalError) return { message: e.message, status: 422 };
   if (e instanceof ConfigError) return { message: e.message, status: 500 };
-  if (e instanceof FreeLLMError) {
-    if (e.status === 401 || e.status === 403) return { message: "Chiave FreeLLMAPI non valida (controlla FREELLMAPI_KEY).", status: 500 };
-    if (e.status === 429) return { message: "Anche i modelli gratuiti di FreeLLMAPI hanno esaurito la quota: riprova più tardi.", status: 429, code: "quota" };
+  if (e instanceof CompatError) {
+    if (e.status === 401 || e.status === 403) return { message: `Chiave API non valida per ${e.provider}: controlla la variabile su Vercel.`, status: 500 };
+    if (e.status === 429) return { message: "Anche gli altri provider gratuiti hanno esaurito la quota: riprova più tardi.", status: 429, code: "quota" };
     return { message: e.message, status: 502 };
   }
   if (e instanceof ApiError) {

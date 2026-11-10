@@ -57,14 +57,21 @@ Il file `vercel.json` attiva un controllo automatico giornaliero (`/api/keepaliv
 
 **Privacy:** con il piano gratuito di Gemini, Google può usare i contenuti inviati all'AI (e farli leggere a revisori umani) per migliorare i suoi servizi. Le note bloccate con PIN non vengono mai inviate all'AI; evita di elaborare con l'AI appunti con dati personali o riservati.
 
-## Più AI gratuita con FreeLLMAPI (facoltativo)
-[FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) è un proxy open source che riunisce dietro un unico indirizzo i piani gratuiti di molti provider (Groq, Cerebras, OpenRouter, Mistral, Cloudflare, Cohere, NVIDIA e altri). L'app lo usa come ulteriore riserva quando tutti i modelli Gemini sono esauriti o occupati, oppure come prima scelta con `FREELLMAPI_MODE=first`.
+## Più AI gratuita: altri provider (facoltativi)
+Quando tutti i modelli Gemini sono esauriti o occupati, l'app passa da sola ai piani gratuiti di altri provider, chiamati direttamente dal server (nessun PC acceso). Ognuno si attiva aggiungendo la sua chiave su Vercel:
 
-1. Installa FreeLLMAPI su un computer o server sempre acceso (Node 20+ o Docker) e rendilo raggiungibile via HTTPS.
-2. Nella sua dashboard aggiungi le chiavi gratuite dei provider che vuoi usare e crea la chiave unica (`freellmapi-…`).
-3. Su Vercel imposta `FREELLMAPI_URL` (es. `https://tuo-server/v1`) e `FREELLMAPI_KEY`, poi ripubblica.
+| Provider | Variabile | Dove prendere la chiave | Foto | Note |
+|---|---|---|---|---|
+| Mistral | `MISTRAL_API_KEY` | console.mistral.ai → piano *Experiment* | ✅ | Richiede verifica del numero di telefono |
+| Groq | `GROQ_API_KEY` | console.groq.com → *API Keys* | ✅ (Llama 4) | Molto veloce |
+| OpenRouter | `OPENROUTER_API_KEY` | openrouter.ai → *Keys* | ✅ (alcuni) | Solo modelli `:free`; in *Settings → Privacy* va consentito l'uso dei modelli gratuiti |
+| Cerebras | `CEREBRAS_API_KEY` | cloud.cerebras.ai | ❌ | Solo testo |
 
-Limiti: i PDF restano su Gemini, perché FreeLLMAPI non accetta documenti; foto, testo, slide e Word funzionano. La qualità dipende dal modello che il router sceglie. Restano valide le condizioni d'uso di ogni provider. `/api/ai/diag` mostra se FreeLLMAPI risponde e quale modello ha usato.
+I modelli non sono scritti nel codice: l'app legge l'elenco aggiornato di ogni provider, sceglie quelli gratuiti, per le foto solo quelli che leggono immagini, e mette in pausa quelli esauriti. I PDF restano su Gemini, l'unico che li legge; slide e Word funzionano con tutti, perché il testo viene estratto prima. Con i piani gratuiti questi provider possono usare i dati inviati per migliorare i loro servizi.
+
+Facoltativo: anche un proxy [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) self-hosted (`FREELLMAPI_URL`, `FREELLMAPI_KEY`).
+
+`/api/ai/diag` mostra per ogni provider i modelli trovati e una risposta di prova.
 
 ## Architettura in breve
 - **Offline-first:** tutte le letture passano da IndexedDB (Dexie). Le modifiche vanno in una coda (`outbox`) e vengono inviate a Supabase appena c'è rete (`src/lib/sync.ts`).

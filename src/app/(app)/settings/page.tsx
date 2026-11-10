@@ -126,12 +126,12 @@ export default function SettingsPage() {
           )}
         </div>
         <p className="mb-3 text-sm text-muted">
-          L&apos;AI usa il piano gratuito di Google Gemini: <b>costo zero</b>, ma con un limite di richieste al giorno che Google può cambiare. Quando
-          finisce, l&apos;app passa al modello più leggero e poi ti avvisa; la quota si rinnova ogni giorno. Le foto si possono comunque trascrivere
-          senza AI (solo testo stampato).
+          L&apos;AI usa i piani gratuiti di Google Gemini e, se configurati, di Mistral, Groq, OpenRouter e Cerebras: <b>costo zero</b>. Ogni
+          modello ha un limite di richieste al giorno: quando uno è esaurito l&apos;app passa da sola al successivo, e le quote si rinnovano ogni giorno.
+          Le foto si possono comunque trascrivere senza AI (solo testo stampato).
         </p>
         <p className="mb-3 rounded-lg border border-line p-2 text-xs text-muted">
-          🔒 Privacy: con il piano gratuito Google può usare i contenuti inviati all&apos;AI per migliorare i suoi servizi. Evita di elaborare con l&apos;AI
+          🔒 Privacy: con i piani gratuiti i provider possono usare i contenuti inviati all&apos;AI per migliorare i loro servizi. Evita di elaborare con l&apos;AI
           appunti con dati personali o riservati (le note bloccate con PIN non vengono mai inviate).
         </p>
         <label className="flex items-center gap-2 text-sm">
