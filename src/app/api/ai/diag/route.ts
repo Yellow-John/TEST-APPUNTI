@@ -1,4 +1,4 @@
-import { aiErrorInfo, diagListModels, diagPing, MODEL_LITE, MODEL_MAIN } from "@/lib/ai/gemini";
+import { aiErrorInfo, diagListModels, diagPing, MODEL_BACKUP, MODEL_LITE, MODEL_MAIN } from "@/lib/ai/gemini";
 import { requireUser } from "@/lib/server-auth";
 
 export const maxDuration = 300;
@@ -13,7 +13,7 @@ export async function GET() {
   const steps: Record<string, unknown> = {
     regione_vercel: process.env.VERCEL_REGION ?? "locale",
     chiave_gemini: process.env.GEMINI_API_KEY ? `presente (inizia con "${process.env.GEMINI_API_KEY.slice(0, 3)}…", ${process.env.GEMINI_API_KEY.length} caratteri)` : "MANCANTE",
-    modelli_configurati: { principale: MODEL_MAIN, leggero: MODEL_LITE },
+    modelli_configurati: { principale: MODEL_MAIN, riserva: MODEL_BACKUP, leggero: MODEL_LITE },
     accesso_ms: Date.now() - t0,
   };
 
@@ -41,6 +41,7 @@ export async function GET() {
   });
   await timed("gemini_leggero", () => diagPing("lite"));
   await timed("gemini_principale", () => diagPing("main"));
+  await timed("gemini_riserva", () => diagPing("backup"));
 
   steps.totale_ms = Date.now() - t0;
   return new Response(JSON.stringify(steps, null, 2), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });

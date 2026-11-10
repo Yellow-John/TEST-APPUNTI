@@ -5,16 +5,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // Se un nome non esiste più, l'app chiede a Google l'elenco dei modelli disponibili e sceglie il Flash più recente.
 export const MODEL_MAIN = process.env.GEMINI_MODEL || "gemini-flash-latest"; // foto, PDF, correzioni, chat
 export const MODEL_LITE = process.env.GEMINI_MODEL_LITE || "gemini-flash-lite-latest"; // compiti leggeri + riserva
+// Riserva quando il Flash più recente è sovraccarico (succede spesso sul piano gratuito): un Flash stabile più vecchio.
+export const MODEL_BACKUP = process.env.GEMINI_MODEL_BACKUP || "gemini-2.5-flash";
 
 export type { Part };
-export type Tier = "main" | "lite";
+export type Tier = "main" | "backup" | "lite";
 
 let _ai: GoogleGenAI | null = null;
 export function gemini() {
   if (!process.env.GEMINI_API_KEY) throw new ConfigError("Manca GEMINI_API_KEY nelle variabili d'ambiente.");
   // v1beta: necessaria per gli alias "-latest", l'output JSON con schema e la Files API (l'SDK usa "v1" di default)
-  // timeout: meglio un errore chiaro che superare il limite di 300 s di Vercel (errore 504)
-  if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { apiVersion: "v1beta", timeout: 240_000 } });
+  // timeout per tentativo: anche tre tentativi (principale → riserva → leggero) restano nei 300 s di Vercel
+  if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { apiVersion: "v1beta", timeout: 90_000 } });
   return _ai;
 }
 
@@ -49,6 +51,10 @@ function config(c: AiCall) {
 
 const isQuota = (e: unknown) => e instanceof ApiError && e.status === 429;
 const isModelMissing = (e: unknown) => e instanceof ApiError && e.status === 404;
+const isTimeout = (e: unknown) => (e as Error)?.name === "AbortError" || /timed? ?out|timeout|aborted/i.test((e as Error)?.message ?? "");
+/** Errori per cui ha senso provare un altro modello: quota finita, sovraccarico, errore del server, troppo lento. */
+const isRetriable = (e: unknown) =>
+  isQuota(e) || (e instanceof ApiError && [500, 502, 503, 504].includes(e.status)) || isTimeout(e);
 
 // ---------- scelta automatica del modello ----------
 const resolved: Partial<Record<Tier, string>> = {};
@@ -76,22 +82,29 @@ const version = (n: string) => n.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? "0";
 const byVersionDesc = (a: string, b: string) => parseFloat(version(b)) - parseFloat(version(a));
 
 /** Sceglie il miglior Flash (o Flash-Lite) disponibile, preferendo le versioni stabili e più recenti. */
-async function pickFromList(tier: Tier): Promise<string> {
-  const all = await listModels();
+async function pickFromList(tier: Tier, exclude?: string): Promise<string> {
+  const all = (await listModels()).filter((n) => n !== exclude);
   const lite = tier === "lite";
+  if (tier === "backup") {
+    // un Flash stabile diverso dal più recente (che è quello più spesso sovraccarico)
+    const stableFlash = all.filter((n) => /^gemini-\d+(\.\d+)?-flash$/.test(n) && n !== modelFor("main")).sort(byVersionDesc);
+    const pick = stableFlash[1] ?? stableFlash[0];
+    if (!pick) return pickFromList("lite", exclude);
+    return pick;
+  }
   const ok = (n: string) => /^gemini-/.test(n) && n.includes("flash") && n.includes("lite") === lite && !/image|tts|audio|live|embedding|thinking/.test(n);
   const cands = all.filter(ok);
   const stable = cands.filter((n) => !/preview|exp/.test(n)).sort(byVersionDesc);
   const best = (lite ? ["gemini-flash-lite-latest"] : ["gemini-flash-latest"]).find((a) => all.includes(a)) ?? stable[0] ?? cands.sort(byVersionDesc)[0];
   if (!best) {
-    if (lite) return pickFromList("main");
+    if (lite) return pickFromList("main", exclude);
     throw new ConfigError("Nessun modello Gemini Flash disponibile per questa chiave API.");
   }
   return best;
 }
 
 function modelFor(tier: Tier) {
-  return resolved[tier] ?? (tier === "lite" ? MODEL_LITE : MODEL_MAIN);
+  return resolved[tier] ?? (tier === "lite" ? MODEL_LITE : tier === "backup" ? MODEL_BACKUP : MODEL_MAIN);
 }
 
 /** Esegue fn sul modello del livello indicato; se il nome non esiste più, sceglie un modello disponibile e riprova. */
@@ -100,29 +113,36 @@ async function onTier<T>(tier: Tier, fn: (model: string) => Promise<T>): Promise
     return await fn(modelFor(tier));
   } catch (e) {
     if (!isModelMissing(e) || resolved[tier]) throw e;
-    resolved[tier] = await pickFromList(tier);
+    resolved[tier] = await pickFromList(tier, modelFor(tier));
     console.warn(`Modello Gemini non trovato, uso ${resolved[tier]} (${tier})`);
     return fn(resolved[tier]!);
   }
 }
 
-/** Esegue fn sul modello principale; se la quota gratuita è finita, riprova sul modello "lite". */
+/**
+ * Esegue fn provando i modelli in ordine: principale → riserva → leggero (per i compiti leggeri: leggero → riserva).
+ * Passa al successivo se la quota è finita, se Google è sovraccarico o se la risposta tarda troppo.
+ */
 async function withFallback<T>(c: AiCall, fn: (model: string) => Promise<T>): Promise<T> {
-  const tier: Tier = c.tier ?? "main";
-  try {
-    return await onTier(tier, fn);
-  } catch (e) {
-    if (isQuota(e) && tier === "main") {
-      try {
-        return await onTier("lite", fn);
-      } catch (e2) {
-        if (isQuota(e2)) throw quotaError();
-        throw e2;
-      }
+  const chain: Tier[] = c.tier === "lite" ? ["lite", "backup"] : ["main", "backup", "lite"];
+  const tried = new Set<string>();
+  let last: unknown;
+  let quota = false;
+  for (const tier of chain) {
+    if (tried.has(modelFor(tier))) continue;
+    tried.add(modelFor(tier));
+    try {
+      return await onTier(tier, fn);
+    } catch (e) {
+      last = e;
+      if (isQuota(e)) quota = true;
+      // anche un modello inesistente (dopo la scelta automatica) non deve bloccare la catena
+      if (!isRetriable(e) && !isModelMissing(e)) throw e;
+      console.warn(`Gemini ${modelFor(tier)} non disponibile (${(e as Error).message?.slice(0, 120)}), provo il successivo`);
     }
-    if (isQuota(e)) throw quotaError();
-    throw e;
   }
+  if (quota && isQuota(last)) throw quotaError();
+  throw last;
 }
 
 function quotaError() {
@@ -260,6 +280,7 @@ export async function diagListModels() {
 
 /** Diagnostica: risposta minima da un modello, con il nome del modello effettivamente usato. */
 export async function diagPing(tier: Tier) {
+  // nessuna catena di riserva qui: si vuole sapere lo stato di ogni singolo modello
   return onTier(tier, async (model) => {
     const res = await gemini().models.generateContent({ model, contents: "Rispondi solo con la parola OK." });
     return { model, text: (res.text ?? "").trim().slice(0, 40), finishReason: res.candidates?.[0]?.finishReason };
