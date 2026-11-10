@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AppProvider } from "@/components/AppProvider";
 import { Sidebar } from "@/components/Sidebar";
+import { Toaster } from "@/components/Toaster";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
@@ -55,6 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </nav>
         </main>
       </div>
+      <Toaster />
     </AppProvider>
   );
 }

@@ -12,6 +12,7 @@ import { isPurged } from "@/lib/export";
 import { createNotebook, deleteNotebook, updateNotebook } from "@/lib/repo";
 import type { Notebook } from "@/lib/types";
 import { lockNotebook, unlockNotebook } from "@/lib/lock";
+import { noteDropProps } from "@/lib/move";
 import { AppLogo } from "./AppLogo";
 import { PinDialog } from "./PinDialog";
 import { SyncBadge } from "./SyncBadge";
@@ -94,7 +95,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         }
       />
-      {item("/notes?nb=none", <FolderOpen size={16} />, "Senza quaderno", isActive({ nb: "none" }))}
+      <DropTarget notebookId={null}>
+        {item("/notes?nb=none", <FolderOpen size={16} />, "Senza quaderno", isActive({ nb: "none" }))}
+      </DropTarget>
       <NotebookTree all={active} parent={null} depth={0} counts={counts} currentNb={pathname === "/notes" ? sp.get("nb") : null} onNavigate={onNavigate} />
 
       {tags.length > 0 && (
@@ -165,12 +168,14 @@ function NotebookRow({
   const [open, setOpen] = useState(true);
   const [menu, setMenu] = useState(false);
   const [pin, setPin] = useState<null | "lock" | "unlock">(null);
+  const [over, setOver] = useState(false);
   const active = currentNb === nb.id;
   return (
     <>
       <div
-        className={`group flex items-center gap-1 rounded-lg pr-1 text-sm ${active ? "bg-accent-soft text-accent font-medium" : "hover:bg-panel-2"}`}
+        className={`group flex items-center gap-1 rounded-lg pr-1 text-sm ${active ? "bg-accent-soft text-accent font-medium" : "hover:bg-panel-2"} ${over ? "ring-2 ring-[var(--accent)]" : ""}`}
         style={{ paddingLeft: 4 + depth * 14 }}
+        {...noteDropProps(nb.id, setOver)}
       >
         <button
           className={`p-1 text-muted ${hasChildren ? "" : "invisible"}`}
@@ -253,5 +258,15 @@ function NbItem({ icon, label, onClick, danger }: { icon: React.ReactNode; label
       {icon}
       {label}
     </button>
+  );
+}
+
+/** Destinazione per le note trascinate (da PC). */
+function DropTarget({ notebookId, children }: { notebookId: string | null; children: React.ReactNode }) {
+  const [over, setOver] = useState(false);
+  return (
+    <div className={`rounded-lg ${over ? "ring-2 ring-[var(--accent)]" : ""}`} {...noteDropProps(notebookId, setOver)}>
+      {children}
+    </div>
   );
 }

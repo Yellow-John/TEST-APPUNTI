@@ -1,10 +1,12 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Archive, Hash, Lock, LockOpen, Pin, Search, Sparkles, Star, Trash2, Undo2, X } from "lucide-react";
+import { Archive, FolderInput, Hash, Lock, LockOpen, Pin, Search, Sparkles, Star, Trash2, Undo2, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { MoveDialog } from "@/components/MoveDialog";
 import { PinDialog } from "@/components/PinDialog";
+import { NOTE_DRAG_TYPE } from "@/lib/move";
 import { decryptNote, handKey, lockedAncestor } from "@/lib/lock";
 import { aiPost } from "@/lib/ai-client";
 import { db } from "@/lib/db";
@@ -241,9 +243,21 @@ export default function NotesPage() {
 
 function NoteRow({ n, trash, nbName, shownTitle, onOpen }: { n: Note; trash: boolean; nbName?: string; shownTitle?: string; onOpen?: () => void }) {
   const preview = n.is_locked ? "Protetta da PIN" : stripMarkdown(n.content).slice(0, 160);
+  const [moving, setMoving] = useState(false);
   return (
     <li className="card group relative p-3 transition hover:border-accent">
-      <Link href={`/note?id=${n.id}`} onClick={onOpen} className="block pr-16">
+      <Link
+        href={`/note?id=${n.id}`}
+        onClick={onOpen}
+        className="block pr-24"
+        draggable={!trash}
+        onDragStart={(e) => {
+          // da PC: trascina la nota su un quaderno della barra laterale
+          e.dataTransfer.setData(NOTE_DRAG_TYPE, n.id);
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        title={trash ? undefined : "Trascina su un quaderno per spostarla"}
+      >
         <div className="flex items-center gap-1.5">
           {n.is_pinned && <Pin size={13} className="shrink-0 text-accent" />}
           {n.is_locked && <Lock size={13} className="shrink-0 text-muted" />}
@@ -281,6 +295,9 @@ function NoteRow({ n, trash, nbName, shownTitle, onOpen }: { n: Note; trash: boo
           </>
         ) : (
           <>
+            <button className="btn-icon !h-8 !w-8" title="Sposta in quaderno" aria-label="Sposta in quaderno" onClick={() => setMoving(true)}>
+              <FolderInput size={15} />
+            </button>
             <button
               className="btn-icon !h-8 !w-8"
               title={n.is_pinned ? "Togli dall'alto" : "Fissa in alto"}
@@ -300,6 +317,7 @@ function NoteRow({ n, trash, nbName, shownTitle, onOpen }: { n: Note; trash: boo
           </>
         )}
       </div>
+      {moving && <MoveDialog noteIds={[n.id]} current={n.notebook_id} onClose={() => setMoving(false)} />}
     </li>
   );
 }

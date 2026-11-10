@@ -1,7 +1,7 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
-  Archive, ArrowLeft, Columns2, Download, Eye, FileText, Image as ImageIcon, Lock, LockOpen, MoreVertical,
+  Archive, FolderInput, ArrowLeft, Columns2, Download, Eye, FileText, Image as ImageIcon, Lock, LockOpen, MoreVertical,
   PenLine, Pin, Share2, Sparkles, Star, Trash2, Undo2,
 } from "lucide-react";
 import Link from "next/link";
@@ -12,6 +12,7 @@ import { AiPanel } from "@/components/note/AiPanel";
 import { Editor, type EditorHandle } from "@/components/note/Editor";
 import { ImageAnnotator } from "@/components/note/ImageAnnotator";
 import { JobStatus } from "@/components/note/JobStatus";
+import { MoveDialog } from "@/components/MoveDialog";
 import { ShareDialog } from "@/components/note/ShareDialog";
 import { TagEditor } from "@/components/note/TagEditor";
 import { PinDialog } from "@/components/PinDialog";
@@ -67,6 +68,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
   const [aiOpen, setAiOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [share, setShare] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [pinFor, setPinFor] = useState<null | "unlock" | "lock" | "remove" | "protect">(null);
   const [annotate, setAnnotate] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -315,6 +317,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
                   <div className="fixed inset-0 z-30" onClick={() => setMenu(false)} />
                   <div className="card absolute right-0 top-full z-40 mt-1 w-60 overflow-hidden py-1 shadow-xl" role="menu" onClick={() => setMenu(false)}>
                     <MenuItem icon={<Pin size={15} />} label={note.is_pinned ? "Togli dall'alto" : "Fissa in alto"} onClick={() => updateNote(note.id, { is_pinned: !note.is_pinned })} />
+                    <MenuItem icon={<FolderInput size={15} />} label="Sposta in quaderno…" onClick={() => setMoving(true)} />
                     <MenuItem icon={<Archive size={15} />} label={note.is_archived ? "Togli dall'archivio" : "Archivia"} onClick={() => updateNote(note.id, { is_archived: !note.is_archived })} />
                     {note.is_locked ? (
                       <MenuItem icon={<LockOpen size={15} />} label="Rimuovi blocco PIN" onClick={() => setPinFor("remove")} />
@@ -464,6 +467,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
       )}
 
       {share && <ShareDialog note={note} onClose={() => setShare(false)} />}
+      {moving && <MoveDialog noteIds={[note.id]} current={note.notebook_id} onClose={() => setMoving(false)} />}
       {pinFor && <PinDialog onKey={onPin} onClose={() => setPinFor(null)} />}
       {annotate && (
         <ImageAnnotator
