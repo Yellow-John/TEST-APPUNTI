@@ -1,11 +1,11 @@
-import { aiErrorInfo, diagListModels, diagPing, MODEL_BACKUP, MODEL_LITE, MODEL_MAIN } from "@/lib/ai/gemini";
+import { aiErrorInfo, diagChain, diagListModels, diagTry } from "@/lib/ai/gemini";
 import { requireUser } from "@/lib/server-auth";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Pagina di diagnostica: apri /api/ai/diag da browser (dopo aver fatto l'accesso) e manda il risultato.
-// Non mostra chiavi né dati personali.
+// Non mostra chiavi né dati personali. Usa al massimo 2 richieste della quota gratuita.
 export async function GET() {
   const t0 = Date.now();
   const auth = await requireUser();
@@ -13,11 +13,10 @@ export async function GET() {
   const steps: Record<string, unknown> = {
     regione_vercel: process.env.VERCEL_REGION ?? "locale",
     chiave_gemini: process.env.GEMINI_API_KEY ? `presente (inizia con "${process.env.GEMINI_API_KEY.slice(0, 3)}…", ${process.env.GEMINI_API_KEY.length} caratteri)` : "MANCANTE",
-    modelli_configurati: { principale: MODEL_MAIN, riserva: MODEL_BACKUP, leggero: MODEL_LITE },
     accesso_ms: Date.now() - t0,
   };
 
-  const timed = async (name: string, fn: () => Promise<unknown>, limitMs = 90_000) => {
+  const timed = async (name: string, fn: () => Promise<unknown>, limitMs = 120_000) => {
     const start = Date.now();
     try {
       const out = await Promise.race([
@@ -35,13 +34,10 @@ export async function GET() {
     if (error) throw new Error(error.message);
     return `${count ?? 0} note`;
   });
-  await timed("elenco_modelli", async () => {
-    const all = await diagListModels();
-    return { totale: all.length, flash: all.filter((m) => m.includes("flash")).slice(0, 20) };
-  });
-  await timed("gemini_leggero", () => diagPing("lite"));
-  await timed("gemini_principale", () => diagPing("main"));
-  await timed("gemini_riserva", () => diagPing("backup"));
+  await timed("modelli_disponibili", async () => (await diagListModels()).length);
+  await timed("prova_compiti_pesanti", () => diagTry("main"));
+  await timed("prova_compiti_leggeri", () => diagTry("lite"));
+  await timed("catena_modelli", () => diagChain());
 
   steps.totale_ms = Date.now() - t0;
   return new Response(JSON.stringify(steps, null, 2), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });

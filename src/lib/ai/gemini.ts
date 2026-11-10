@@ -1,21 +1,24 @@
 import { ApiError, FileState, GoogleGenAI, createPartFromUri, type Content, type Part } from "@google/genai";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// Modelli del piano gratuito di Gemini. Gli alias "-latest" vengono aggiornati da Google a ogni nuova versione.
-// Se un nome non esiste più, l'app chiede a Google l'elenco dei modelli disponibili e sceglie il Flash più recente.
-export const MODEL_MAIN = process.env.GEMINI_MODEL || "gemini-flash-latest"; // foto, PDF, correzioni, chat
-export const MODEL_LITE = process.env.GEMINI_MODEL_LITE || "gemini-flash-lite-latest"; // compiti leggeri + riserva
-// Riserva quando il Flash più recente è sovraccarico (succede spesso sul piano gratuito): un Flash stabile più vecchio.
-export const MODEL_BACKUP = process.env.GEMINI_MODEL_BACKUP || "gemini-2.5-flash";
+// Piano gratuito di Gemini: la quota giornaliera è PER MODELLO (es. 20 richieste/giorno sul Flash più recente).
+// Per questo l'app non usa un solo modello ma una catena: tutti i Flash stabili disponibili per la chiave,
+// dal più recente al più vecchio, poi i Flash-Lite. Un modello esaurito o sovraccarico viene saltato
+// finché Google non lo rende di nuovo disponibile. GEMINI_MODEL / GEMINI_MODEL_LITE, se impostati, vanno in testa.
+export const MODEL_MAIN = process.env.GEMINI_MODEL || "";
+export const MODEL_LITE = process.env.GEMINI_MODEL_LITE || "";
+// usati solo se l'elenco dei modelli non si può leggere
+const STATIC_MAIN = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"];
+const STATIC_LITE = ["gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-2.5-flash"];
 
 export type { Part };
-export type Tier = "main" | "backup" | "lite";
+export type Tier = "main" | "lite";
 
 let _ai: GoogleGenAI | null = null;
 export function gemini() {
   if (!process.env.GEMINI_API_KEY) throw new ConfigError("Manca GEMINI_API_KEY nelle variabili d'ambiente.");
   // v1beta: necessaria per gli alias "-latest", l'output JSON con schema e la Files API (l'SDK usa "v1" di default)
-  // timeout per tentativo: anche tre tentativi (principale → riserva → leggero) restano nei 300 s di Vercel
+  // timeout per tentativo; in più la catena si ferma prima dei 300 s di Vercel (vedi DEADLINE_MS)
   if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { apiVersion: "v1beta", timeout: 90_000 } });
   return _ai;
 }
@@ -56,8 +59,7 @@ const isTimeout = (e: unknown) => (e as Error)?.name === "AbortError" || /timed?
 const isRetriable = (e: unknown) =>
   isQuota(e) || (e instanceof ApiError && [500, 502, 503, 504].includes(e.status)) || isTimeout(e);
 
-// ---------- scelta automatica del modello ----------
-const resolved: Partial<Record<Tier, string>> = {};
+// ---------- catena dei modelli ----------
 let available: Promise<string[]> | null = null;
 
 /** Modelli che la chiave può usare con generateContent (elenco gratuito, letto una volta per istanza). */
@@ -78,76 +80,80 @@ function listModels(): Promise<string[]> {
   return available;
 }
 
-const version = (n: string) => n.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? "0";
-const byVersionDesc = (a: string, b: string) => parseFloat(version(b)) - parseFloat(version(a));
+const version = (n: string) => parseFloat(n.match(/gemini-(\d+(?:\.\d+)?)/)?.[1] ?? "0");
+const byVersionDesc = (a: string, b: string) => version(b) - version(a);
 
-/** Sceglie il miglior Flash (o Flash-Lite) disponibile, preferendo le versioni stabili e più recenti. */
-async function pickFromList(tier: Tier, exclude?: string): Promise<string> {
-  const all = (await listModels()).filter((n) => n !== exclude);
-  const lite = tier === "lite";
-  if (tier === "backup") {
-    // un Flash stabile diverso dal più recente (che è quello più spesso sovraccarico)
-    const stableFlash = all.filter((n) => /^gemini-\d+(\.\d+)?-flash$/.test(n) && n !== modelFor("main")).sort(byVersionDesc);
-    const pick = stableFlash[1] ?? stableFlash[0];
-    if (!pick) return pickFromList("lite", exclude);
-    return pick;
-  }
-  const ok = (n: string) => /^gemini-/.test(n) && n.includes("flash") && n.includes("lite") === lite && !/image|tts|audio|live|embedding|thinking/.test(n);
-  const cands = all.filter(ok);
-  const stable = cands.filter((n) => !/preview|exp/.test(n)).sort(byVersionDesc);
-  const best = (lite ? ["gemini-flash-lite-latest"] : ["gemini-flash-latest"]).find((a) => all.includes(a)) ?? stable[0] ?? cands.sort(byVersionDesc)[0];
-  if (!best) {
-    if (lite) return pickFromList("main", exclude);
-    throw new ConfigError("Nessun modello Gemini Flash disponibile per questa chiave API.");
-  }
-  return best;
-}
-
-function modelFor(tier: Tier) {
-  return resolved[tier] ?? (tier === "lite" ? MODEL_LITE : tier === "backup" ? MODEL_BACKUP : MODEL_MAIN);
-}
-
-/** Esegue fn sul modello del livello indicato; se il nome non esiste più, sceglie un modello disponibile e riprova. */
-async function onTier<T>(tier: Tier, fn: (model: string) => Promise<T>): Promise<T> {
+/** Ordine dei modelli da provare per un livello. */
+export async function modelChain(tier: Tier): Promise<string[]> {
+  let flash: string[];
+  let lite: string[];
   try {
-    return await fn(modelFor(tier));
-  } catch (e) {
-    if (!isModelMissing(e) || resolved[tier]) throw e;
-    resolved[tier] = await pickFromList(tier, modelFor(tier));
-    console.warn(`Modello Gemini non trovato, uso ${resolved[tier]} (${tier})`);
-    return fn(resolved[tier]!);
+    const all = await listModels();
+    // solo modelli stabili "gemini-X.Y-flash" e "gemini-X.Y-flash-lite" (niente preview, immagini, audio, alias duplicati)
+    flash = all.filter((n) => /^gemini-\d+(\.\d+)?-flash$/.test(n)).sort(byVersionDesc);
+    lite = all.filter((n) => /^gemini-\d+(\.\d+)?-flash-lite$/.test(n)).sort(byVersionDesc);
+    if (!flash.length && !lite.length) throw new Error("nessun Flash nell'elenco");
+  } catch {
+    flash = [];
+    lite = [];
+    const fallback = tier === "lite" ? STATIC_LITE : STATIC_MAIN;
+    return [...new Set([tier === "lite" ? MODEL_LITE : MODEL_MAIN, ...fallback].filter(Boolean))];
   }
+  const order = tier === "lite" ? [MODEL_LITE, ...lite, ...flash] : [MODEL_MAIN, ...flash, ...lite];
+  return [...new Set(order.filter(Boolean))];
 }
 
-/**
- * Esegue fn provando i modelli in ordine: principale → riserva → leggero (per i compiti leggeri: leggero → riserva).
- * Passa al successivo se la quota è finita, se Google è sovraccarico o se la risposta tarda troppo.
- */
+/** Modelli temporaneamente da saltare (quota esaurita, sovraccarico, inesistente), con l'ora in cui riprovarli. */
+const cooldown = new Map<string, number>();
+
+function cooldownFor(e: unknown): number {
+  if (isQuota(e)) {
+    const msg = (e as Error).message;
+    // Google indica quando riprovare: "retryDelay":"65222s" oppure "Please retry in 18h7m2.5s"
+    const delay = msg.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+    if (delay) return Number(delay[1]) * 1000;
+    const human = msg.match(/retry in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+    if (human && (human[1] || human[2] || human[3])) {
+      return ((Number(human[1] ?? 0) * 60 + Number(human[2] ?? 0)) * 60 + Number(human[3] ?? 0)) * 1000;
+    }
+    return 10 * 60_000;
+  }
+  if (isModelMissing(e)) return 24 * 3600_000;
+  if (isTimeout(e)) return 5 * 60_000;
+  return 2 * 60_000; // sovraccarico / errore del server
+}
+
+const DEADLINE_MS = 200_000; // oltre, non si prova un altro modello: Vercel interrompe a 300 s
+
+/** Esegue fn sul primo modello disponibile della catena, passando al successivo se esaurito/sovraccarico/lento. */
 async function withFallback<T>(c: AiCall, fn: (model: string) => Promise<T>): Promise<T> {
-  const chain: Tier[] = c.tier === "lite" ? ["lite", "backup"] : ["main", "backup", "lite"];
-  const tried = new Set<string>();
-  let last: unknown;
+  const chain = await modelChain(c.tier ?? "main");
+  const start = Date.now();
+  let last: unknown = null;
   let quota = false;
-  for (const tier of chain) {
-    if (tried.has(modelFor(tier))) continue;
-    tried.add(modelFor(tier));
+  const now = Date.now();
+  // prima i modelli non in pausa; se sono tutti in pausa, si riprova comunque il primo
+  const ready = chain.filter((m) => (cooldown.get(m) ?? 0) <= now);
+  for (const model of ready.length ? ready : chain.slice(0, 1)) {
+    if (Date.now() - start > DEADLINE_MS) break;
     try {
-      return await onTier(tier, fn);
+      return await fn(model);
     } catch (e) {
       last = e;
-      if (isQuota(e)) quota = true;
-      // anche un modello inesistente (dopo la scelta automatica) non deve bloccare la catena
       if (!isRetriable(e) && !isModelMissing(e)) throw e;
-      console.warn(`Gemini ${modelFor(tier)} non disponibile (${(e as Error).message?.slice(0, 120)}), provo il successivo`);
+      if (isQuota(e)) quota = true;
+      cooldown.set(model, Date.now() + cooldownFor(e));
+      console.warn(`Gemini ${model} non disponibile (${(e as Error).message?.slice(0, 120)}), provo il successivo`);
     }
   }
-  if (quota && isQuota(last)) throw quotaError();
-  throw last;
+  if (!last && !ready.length) throw quotaError();
+  if (quota && (isQuota(last) || isModelMissing(last))) throw quotaError();
+  throw last ?? quotaError();
 }
 
 function quotaError() {
   return new QuotaError(
-    "Hai esaurito la quota gratuita di Gemini per oggi (o per questo minuto). Riprova più tardi: la quota si rinnova ogni giorno.",
+    "Tutti i modelli gratuiti di Gemini hanno esaurito la quota o sono occupati. Riprova più tardi: le quote si rinnovano ogni giorno.",
   );
 }
 
@@ -278,11 +284,20 @@ export async function diagListModels() {
   return listModels();
 }
 
-/** Diagnostica: risposta minima da un modello, con il nome del modello effettivamente usato. */
-export async function diagPing(tier: Tier) {
-  // nessuna catena di riserva qui: si vuole sapere lo stato di ogni singolo modello
-  return onTier(tier, async (model) => {
+/** Diagnostica: catena dei modelli e stato di pausa di ciascuno. */
+export async function diagChain() {
+  const now = Date.now();
+  const status = (m: string) => {
+    const until = cooldown.get(m) ?? 0;
+    return until > now ? `${m} (in pausa ancora ${Math.round((until - now) / 60_000)} min)` : m;
+  };
+  return { principale: (await modelChain("main")).map(status), leggero: (await modelChain("lite")).map(status) };
+}
+
+/** Diagnostica: una sola richiesta minima attraverso la catena, per sapere quale modello risponde davvero. */
+export async function diagTry(tier: Tier) {
+  return withFallback({ tier } as AiCall, async (model) => {
     const res = await gemini().models.generateContent({ model, contents: "Rispondi solo con la parola OK." });
-    return { model, text: (res.text ?? "").trim().slice(0, 40), finishReason: res.candidates?.[0]?.finishReason };
+    return { modello_che_ha_risposto: model, testo: (res.text ?? "").trim().slice(0, 40) };
   });
 }
