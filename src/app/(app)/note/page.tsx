@@ -14,7 +14,9 @@ import { ImageAnnotator } from "@/components/note/ImageAnnotator";
 import { JobStatus } from "@/components/note/JobStatus";
 import { MoveDialog } from "@/components/MoveDialog";
 import { ShareDialog } from "@/components/note/ShareDialog";
+import { SecretsBanner } from "@/components/note/SecretsBanner";
 import { TagEditor } from "@/components/note/TagEditor";
+import { protectSecrets } from "@/lib/secrets";
 import { PinDialog } from "@/components/PinDialog";
 import { aiPost } from "@/lib/ai-client";
 import { db } from "@/lib/db";
@@ -22,12 +24,14 @@ import { exportDocx, exportMarkdown, exportPdf } from "@/lib/export";
 import { fileUrl } from "@/lib/files";
 import { useWikiIndex } from "@/lib/hooks";
 import { cropPendingFigures } from "@/lib/jobs-client";
+import { rememberNote } from "@/lib/recent";
 import { decryptNote, encryptNote, lockNote, lockedAncestor, takeKey, unlockNotePermanently } from "@/lib/lock";
 import { extractWikiLinks } from "@/lib/markdown";
 import { createNote, createNotebook, noteTitle, restoreNote, trashNote, updateNote } from "@/lib/repo";
 import type { Note } from "@/lib/types";
 
 const EMPTY: never[] = [];
+const LONG_NOTE_WORDS = 600; // oltre, compare il pulsante "Riassumi"
 
 type ViewMode = "edit" | "split" | "preview";
 
@@ -66,6 +70,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     return "preview";
   });
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiAuto, setAiAuto] = useState<"summary" | null>(null);
   const [menu, setMenu] = useState(false);
   const [share, setShare] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -89,6 +94,8 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     const me = noteTitle({ title, content }).toLowerCase();
     return allNotes.filter((n) => n.id !== note.id && !n.deleted_at && !n.is_locked && extractWikiLinks(n.content).includes(me));
   }, [allNotes, note.id, title, content]);
+
+  useEffect(() => rememberNote(note.id), [note.id]);
 
   // figure indicate dall'AI durante la trascrizione: ritagliate dalle foto originali
   useEffect(() => {
@@ -185,7 +192,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
       const nbs = notebooks.filter((n) => !n.deleted_at);
       const r = await aiPost<{ tags: string[]; notebook: string }>(
         "tags",
-        { title, content, existingTags: allTags, notebooks: nbs.map((n) => n.name) },
+        { title: protectSecrets(title).text, content: protectSecrets(content).text, existingTags: allTags, notebooks: nbs.map((n) => n.name) },
         "suggerimento tag",
       );
       const merged = [...new Set([...note.tags, ...r.tags.map((t) => t.toLowerCase().replace(/^#/, ""))])];
@@ -238,12 +245,26 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     }
   }
 
+  /** Riassunto salvato come nota a parte, nello stesso quaderno, con collegamento all'originale. */
+  async function saveSummaryNote(summary: string) {
+    const base = noteTitle({ title, content });
+    const n = await createNote({
+      title: `Riassunto: ${base}`,
+      content: `${summary}\n\n---\n_Riassunto di [[${base}]]_`,
+      notebook_id: note.notebook_id,
+      tags: [...new Set([...note.tags, "riassunto"])],
+    });
+    setAiOpen(false);
+    router.push(`/note?id=${n.id}`);
+  }
+
   async function createLinkedNote(t: string) {
     const n = await createNote({ title: t, notebook_id: note.notebook_id });
     router.push(`/note?id=${n.id}&edit=1`);
   }
 
   const trashed = !!note.deleted_at;
+  const wordCount = useMemo(() => (content.match(/[\p{L}\p{N}]+/gu) ?? []).length, [content]);
   const lockedNb = lockedAncestor(note.notebook_id, notebooks);
   const activeNbs = notebooks.filter((n) => !n.deleted_at).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -298,7 +319,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
                 </button>
                 <button
                   className={`btn !px-2.5 ${aiOpen ? "!border-accent !text-accent" : ""}`}
-                  onClick={() => setAiOpen(!aiOpen)}
+                  onClick={() => { setAiAuto(null); setAiOpen(!aiOpen); }}
                   aria-label="Assistente AI"
                   disabled={note.is_locked}
                   title={note.is_locked ? "Le note bloccate non vengono mai inviate all'AI" : "Assistente AI"}
@@ -383,7 +404,21 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
             </select>
             <TagEditor tags={note.tags} onChange={(tags) => updateNote(note.id, { tags })} allTags={allTags} onSuggest={suggestTags} suggesting={suggesting} />
             {note.is_locked && <span className="chip"><Lock size={11} /> Protetta da PIN</span>}
+            {!note.is_locked && !trashed && wordCount >= LONG_NOTE_WORDS && (
+              <button
+                className="chip !text-accent hover:!bg-accent-soft"
+                onClick={() => {
+                  setAiAuto("summary");
+                  setAiOpen(true);
+                }}
+                title={`${wordCount} parole`}
+              >
+                <FileText size={11} /> Nota lunga · Riassumi
+              </button>
+            )}
           </div>
+
+          {!note.is_locked && !trashed && <SecretsBanner noteId={note.id} content={content} onLock={() => setPinFor("lock")} onChange={setContent} />}
 
           {!note.is_locked && !trashed && lockedNb && (
             <div className="no-print mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400 bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
@@ -457,7 +492,11 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
         <div className="no-print fixed inset-0 z-40 md:static md:inset-auto md:z-auto md:w-96 md:shrink-0 md:border-l md:border-line">
           <div className="sticky top-0 h-dvh md:h-[100dvh]">
             <AiPanel
+              key={aiAuto ?? "panel"}
               content={content}
+              title={title}
+              autoAction={aiAuto ?? undefined}
+              onSaveSummary={saveSummaryNote}
               getSelection={() => editor.current?.getSelection() || window.getSelection()?.toString() || ""}
               onApply={(next) => setContent(next)}
               onClose={() => setAiOpen(false)}

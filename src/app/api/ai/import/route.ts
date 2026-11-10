@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type Part, aiErrorResponse, blobToInlinePart, callAIJSON, storageFile, uploadLargeFile } from "@/lib/ai/gemini";
 import { startNoteJob } from "@/lib/ai/jobs";
 import { DOC_SCHEMA, FULL_IMPORT_SYSTEM, smartSummarySystem } from "@/lib/ai/prompts";
+import { protectSecrets } from "@/lib/secrets";
 import { jsonError, requireUser } from "@/lib/server-auth";
 
 export const maxDuration = 300;
@@ -40,6 +41,8 @@ export async function POST(req: Request) {
       work: async () => {
         const parts: Part[] = [];
         let cleanup: (() => Promise<void>) | null = null;
+        // testo di slide/Word: i segreti diventano segnaposto e vengono ripristinati nella nota
+        const guard = protectSecrets(text ?? "");
         try {
           if (path) {
             const blob = await storageFile(auth.sb, auth.user.id, path);
@@ -51,7 +54,7 @@ export async function POST(req: Request) {
               parts.push(await blobToInlinePart(blob, "application/pdf"));
             }
           } else {
-            parts.push({ text: `<documento nome="${filename}">\n${text}\n</documento>` });
+            parts.push({ text: `<documento nome="${filename}">\n${guard.text}\n</documento>` });
           }
           parts.push({
             text:
@@ -69,8 +72,8 @@ export async function POST(req: Request) {
             maxOutputTokens: 65536,
           });
           return {
-            title: r.title,
-            content: r.markdown,
+            title: guard.restore(r.title),
+            content: guard.restore(r.markdown),
             tags: r.tags.map((t) => t.toLowerCase().replace(/^#/, "")),
             source: { job: undefined },
           };

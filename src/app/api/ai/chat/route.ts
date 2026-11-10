@@ -3,6 +3,7 @@ import { z } from "zod";
 import { aiErrorResponse, streamAI } from "@/lib/ai/gemini";
 import { CHAT_SYSTEM } from "@/lib/ai/prompts";
 import { ftsSearch } from "@/lib/ai/retrieval";
+import { createProtector, restoreStream } from "@/lib/secrets";
 import { jsonError, requireUser } from "@/lib/server-auth";
 
 export const maxDuration = 300;
@@ -39,16 +40,18 @@ export async function POST(req: Request) {
       notes = (data ?? []).sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
     }
     const sources = notes.map((n, i) => ({ n: i + 1, id: n.id, title: n.title || "Senza titolo" }));
+    // password, token e chiavi non vengono mai inviati all'AI: segnaposto, poi ripristinati nella risposta
+    const guard = createProtector();
     const context = notes
       .map(
         (n, i) =>
-          `<nota id="${i + 1}" titolo="${(n.title || "Senza titolo").replace(/"/g, "'")}">\n${n.content.slice(0, 30000)}\n</nota>`,
+          `<nota id="${i + 1}" titolo="${guard.protect(n.title || "Senza titolo").replace(/"/g, "'")}">\n${guard.protect(n.content.slice(0, 30000))}\n</nota>`,
       )
       .join("\n\n");
 
     const history: Content[] = messages
       .slice(0, -1)
-      .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+      .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: guard.protect(m.content) }] }));
 
     const stream = await streamAI({
       sb: auth.sb,
@@ -56,9 +59,9 @@ export async function POST(req: Request) {
       feature: "chat",
       system: CHAT_SYSTEM,
       history,
-      parts: `${context ? `I miei appunti pertinenti:\n${context}\n\n` : "(Nessun appunto pertinente trovato.)\n\n"}Domanda: ${question}`,
+      parts: `${context ? `I miei appunti pertinenti:\n${context}\n\n` : "(Nessun appunto pertinente trovato.)\n\n"}Domanda: ${guard.protect(question)}`,
     });
-    return new Response(stream, {
+    return new Response(guard.count() ? restoreStream(stream, guard.restore) : stream, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "X-Sources": encodeURIComponent(JSON.stringify(sources)),

@@ -15,7 +15,7 @@ export type Figure = { id: number; page: number; box_2d: number[]; caption: stri
 
 /** Parametri per ripetere un'elaborazione AI fallita. */
 export type NoteJob =
-  | { kind: "ocr"; paths: string[]; hint?: string }
+  | { kind: "ocr"; paths: string[]; hint?: string; mode?: "transcribe" | "summary"; level?: SummaryLevel }
   | { kind: "import"; path: string; filename: string; mode: "full" | "smart"; level: SummaryLevel };
 
 export type NoteSource = {

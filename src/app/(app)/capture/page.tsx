@@ -15,6 +15,7 @@ import {
   type Adjust, type Crop, type Filter, autoCrop, canvasToBlob, compressCanvas, defaultAdjust, loadImage, renderAdjusted,
 } from "@/lib/image";
 import { createNote } from "@/lib/repo";
+import type { SummaryLevel } from "@/lib/types";
 
 type Page = { id: string; file: Blob; img: HTMLImageElement; adjust: Adjust; thumb: string };
 
@@ -26,6 +27,8 @@ export default function CapturePage() {
   const [scanner, setScanner] = useState(false);
   const [notebookId, setNotebookId] = useState("");
   const [hint, setHint] = useState("");
+  const [mode, setMode] = useState<"transcribe" | "summary">("transcribe");
+  const [level, setLevel] = useState<SummaryLevel>("standard");
   const [status, setStatus] = useState("");
   const [err, setErr] = useState("");
   const [quotaHit, setQuotaHit] = useState(false);
@@ -99,7 +102,7 @@ export default function CapturePage() {
       const paths = await uploadPages();
       setStatus("Avvio della trascrizione…");
       // il server lavora in background: si può uscire dall'app, la nota si completa da sola
-      const id = await startOcrJob({ paths, hint, notebookId: notebookId || null });
+      const id = await startOcrJob({ paths, hint, notebookId: notebookId || null, mode, level });
       router.replace(`/note?id=${id}`);
     } catch (e) {
       if (e instanceof AiError && e.status === 429) setQuotaHit(true);
@@ -166,6 +169,32 @@ export default function CapturePage() {
           </div>
 
           <div className="card mt-5 space-y-3 p-4">
+            <div className="text-sm">
+              <span className="mb-1 block font-medium">Cosa vuoi ottenere?</span>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cosa vuoi ottenere">
+                {([["transcribe", "Trascrizione completa", "Tutto il testo, parola per parola"], ["summary", "Riassunto", "Solo le informazioni importanti"]] as const).map(([v, l, d]) => (
+                  <button
+                    key={v}
+                    role="radio"
+                    aria-checked={mode === v}
+                    onClick={() => setMode(v)}
+                    className={`card p-2.5 text-left transition ${mode === v ? "!border-accent ring-1 ring-[var(--accent)]" : "hover:border-accent"}`}
+                  >
+                    <span className="block font-medium">{l}</span>
+                    <span className="block text-xs text-muted">{d}</span>
+                  </button>
+                ))}
+              </div>
+              {mode === "summary" && (
+                <div className="mt-2 flex gap-1.5">
+                  {(["essenziale", "standard", "dettagliato"] as const).map((l) => (
+                    <button key={l} onClick={() => setLevel(l)} className={`chip !px-3 !py-1.5 !text-xs capitalize ${level === l ? "!bg-accent !text-white" : ""}`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Quaderno</span>
               <select className="input" value={notebookId} onChange={(e) => setNotebookId(e.target.value)}>
@@ -184,7 +213,7 @@ export default function CapturePage() {
               </button>
             )}
             <button className="btn-primary w-full !py-3" onClick={transcribe} disabled={!!status}>
-              {status ? <><Loader2 size={18} className="animate-spin" /> {status}</> : <><Sparkles size={18} /> Trasforma in testo</>}
+              {status ? <><Loader2 size={18} className="animate-spin" /> {status}</> : <><Sparkles size={18} /> {mode === "summary" ? "Crea il riassunto" : "Trasforma in testo"}</>}
             </button>
           </div>
         </>

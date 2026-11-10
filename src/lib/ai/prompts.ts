@@ -201,3 +201,24 @@ export const SEARCH_SCHEMA = {
   required: ["terms"],
   additionalProperties: false,
 } as const;
+
+
+/** Riassunto di una nota già scritta. */
+export function noteSummarySystem(level: keyof typeof LEVELS) {
+  return `${BASE}
+
+Riassumi gli appunti dell'utente. Regole:
+- ${LEVELS[level]}
+- Tieni solo le informazioni importanti, senza ripetizioni: concetti chiave, decisioni, passaggi delle procedure, comandi e configurazioni essenziali, problemi aperti.
+- Organizza con titoli brevi ed elenchi puntati; se la nota descrive una procedura, mantieni i passaggi numerati nell'ordine giusto.
+- Non aggiungere informazioni che non sono negli appunti. Lascia invariati i segnaposto del tipo ⟦SEGRETO_n⟧.
+- Restituisci solo il Markdown del riassunto, senza titolo principale.`;
+}
+
+/** Riassunto direttamente da foto di appunti (invece della trascrizione integrale). */
+export function photoSummarySystem(level: keyof typeof LEVELS) {
+  return OCR_SYSTEM.replace(
+    "Trascrivili fedelmente in Markdown:",
+    `NON trascriverli integralmente: leggili con attenzione (stesse regole di riconoscimento qui sotto) e produci un RIASSUNTO in Markdown. ${LEVELS[level]} Tieni solo le informazioni importanti, senza ripetizioni; mantieni procedure, comandi e configurazioni essenziali.`,
+  ).replace("- Non correggere i contenuti: è una trascrizione.", "- Non aggiungere informazioni che non sono nelle foto.");
+}

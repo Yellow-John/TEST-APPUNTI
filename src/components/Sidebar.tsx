@@ -2,7 +2,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Archive, ChevronRight, FolderPlus, Hash, Inbox, MessageCircle, Network, Pencil,
-  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool, Lock, LockOpen, MoreHorizontal,
+  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool, Lock, LockOpen, MoreHorizontal, Search,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -13,6 +13,7 @@ import { createNotebook, deleteNotebook, updateNotebook } from "@/lib/repo";
 import type { Notebook } from "@/lib/types";
 import { lockNotebook, unlockNotebook } from "@/lib/lock";
 import { noteDropProps } from "@/lib/move";
+import { openPalette } from "@/lib/recent";
 import { AppLogo } from "./AppLogo";
 import { PinDialog } from "./PinDialog";
 import { SyncBadge } from "./SyncBadge";
@@ -60,7 +61,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <Link href="/notes" onClick={onNavigate} className="flex items-center gap-2 text-lg font-bold">
           <AppLogo size={26} /> Appunti
         </Link>
-        <SyncBadge />
+        <div className="flex items-center">
+          <button className="btn-icon" onClick={() => { onNavigate?.(); openPalette(); }} title="Cerca (Ctrl+K)" aria-label="Ricerca rapida">
+            <Search size={18} />
+          </button>
+          <SyncBadge />
+        </div>
       </div>
 
       <div className="mb-2 grid grid-cols-3 gap-1.5">

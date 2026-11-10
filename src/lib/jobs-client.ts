@@ -12,11 +12,19 @@ async function keep(note: Note) {
   return note.id;
 }
 
-export async function startOcrJob(o: { paths: string[]; hint?: string; notebookId?: string | null; noteId?: string }) {
+export async function startOcrJob(o: {
+  paths: string[];
+  hint?: string;
+  notebookId?: string | null;
+  noteId?: string;
+  mode?: "transcribe" | "summary";
+  level?: SummaryLevel;
+}) {
+  const mode = o.mode ?? "transcribe";
   const r = await aiPost<{ note: Note }>(
     "ocr",
-    { noteId: o.noteId ?? uuid(), notebookId: o.notebookId || null, paths: o.paths, hint: o.hint || undefined },
-    `trascrizione di ${o.paths.length} foto`,
+    { noteId: o.noteId ?? uuid(), notebookId: o.notebookId || null, paths: o.paths, hint: o.hint || undefined, mode, level: o.level ?? "standard" },
+    mode === "summary" ? `riassunto di ${o.paths.length} foto` : `trascrizione di ${o.paths.length} foto`,
   );
   return keep(r.note);
 }
@@ -43,7 +51,7 @@ export async function startImportJob(o: {
 export async function retryJob(note: Note) {
   const job = note.source.job as NoteJob | undefined;
   if (!job) throw new Error("Questa elaborazione non si può ripetere: importa di nuovo il file.");
-  if (job.kind === "ocr") return startOcrJob({ paths: job.paths, hint: job.hint, noteId: note.id, notebookId: note.notebook_id });
+  if (job.kind === "ocr") return startOcrJob({ paths: job.paths, hint: job.hint, mode: job.mode, level: job.level, noteId: note.id, notebookId: note.notebook_id });
   return startImportJob({
     path: job.path,
     filename: job.filename,

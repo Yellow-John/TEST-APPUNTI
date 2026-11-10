@@ -2,6 +2,7 @@
 import { Copy, Link2Off, MessageSquare } from "lucide-react";
 import { useEffect, useState } from "react";
 import { updateNote } from "@/lib/repo";
+import { detectSecrets } from "@/lib/secrets";
 import { supabase } from "@/lib/supabase/client";
 import type { Note } from "@/lib/types";
 import { Modal } from "../Modal";
@@ -33,6 +34,11 @@ export function ShareDialog({ note, onClose }: { note: Note; onClose: () => void
         <p className="text-sm text-muted">Le note bloccate con PIN non possono essere condivise.</p>
       ) : (
         <div className="space-y-4">
+          {detectSecrets(note.content).length > 0 && (
+            <p className="rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-900 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+              ⚠️ Questa nota contiene password, token o chiavi: chi ha il link potrà leggerli. Mascherali prima di condividerla.
+            </p>
+          )}
           <div className="space-y-2">
             <p className="text-sm font-medium">Chi ha il link può:</p>
             <div className="grid grid-cols-3 gap-2">

@@ -1,15 +1,21 @@
 "use client";
-import { Check, CheckCheck, GraduationCap, Lightbulb, ListTree, SpellCheck, Sparkles, X, PuzzleIcon } from "lucide-react";
+import { Check, CheckCheck, FileText, GraduationCap, Lightbulb, ListTree, SpellCheck, Sparkles, X, PuzzleIcon } from "lucide-react";
 import { useState } from "react";
 import { aiPost } from "@/lib/ai-client";
-import type { Suggestion } from "@/lib/types";
+import { protectSecrets } from "@/lib/secrets";
+import type { Suggestion, SummaryLevel } from "@/lib/types";
 import { MarkdownView } from "../MarkdownView";
 
 type Props = {
   content: string;
+  title: string;
   getSelection: () => string;
   onApply: (next: string) => void;
   onClose: () => void;
+  /** salva il riassunto come nota a parte (collegata all'originale) */
+  onSaveSummary: (summary: string) => void;
+  /** azione da proporre all'apertura (es. dal pulsante "Riassumi" delle note lunghe) */
+  autoAction?: "summary";
 };
 
 const KIND = {
@@ -18,12 +24,14 @@ const KIND = {
   lacuna: { label: "Lacuna", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200" },
 } as const;
 
-export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
+export function AiPanel({ content, title, getSelection, onApply, onClose, onSaveSummary, autoAction }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [suggestions, setSuggestions] = useState<(Suggestion & { status?: "ok" | "no" | "stale" })[] | null>(null);
   const [reorg, setReorg] = useState<string | null>(null);
   const [explain, setExplain] = useState<{ text: string; result: string } | null>(null);
+  const [summary, setSummary] = useState<{ level: SummaryLevel; text: string } | null>(null);
+  const [pickLevel, setPickLevel] = useState(autoAction === "summary");
 
   async function run<T>(key: string, fn: () => Promise<T>) {
     setBusy(key);
@@ -40,8 +48,14 @@ export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
   const correct = (kinds: Suggestion["kind"][], key: string) =>
     run(key, async () => {
       if (!content.trim()) throw new Error("La nota è vuota.");
-      const r = await aiPost<{ suggestions: Suggestion[] }>("correct", { content, kinds }, `correzione (${kinds.join(", ")})`);
-      setSuggestions(r.suggestions);
+      const p = protectSecrets(content); // i segreti non lasciano mai l'app
+      const r = await aiPost<{ suggestions: Suggestion[] }>("correct", { content: p.text, kinds }, `correzione (${kinds.join(", ")})`);
+      setSummary(null);
+      setSuggestions(
+        r.suggestions
+          .map((s) => ({ ...s, original: p.restore(s.original), replacement: p.restore(s.replacement), explanation: p.restore(s.explanation) }))
+          .filter((s) => content.includes(s.original)),
+      );
       setReorg(null);
       setExplain(null);
     });
@@ -49,9 +63,23 @@ export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
   const reorganize = () =>
     run("reorg", async () => {
       if (!content.trim()) throw new Error("La nota è vuota.");
-      const r = await aiPost<{ markdown: string }>("reorganize", { content }, "riordino automatico");
-      setReorg(r.markdown);
+      const p = protectSecrets(content);
+      const r = await aiPost<{ markdown: string }>("reorganize", { content: p.text }, "riordino automatico");
+      setReorg(p.restore(r.markdown));
+      setSummary(null);
       setSuggestions(null);
+      setExplain(null);
+    });
+
+  const summarize = (level: SummaryLevel) =>
+    run("summary", async () => {
+      if (!content.trim()) throw new Error("La nota è vuota.");
+      setPickLevel(false);
+      const p = protectSecrets(content);
+      const r = await aiPost<{ markdown: string }>("summarize", { content: p.text, title, level }, `riassunto (${level})`);
+      setSummary({ level, text: p.restore(r.markdown).trim() });
+      setSuggestions(null);
+      setReorg(null);
       setExplain(null);
     });
 
@@ -59,8 +87,13 @@ export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
     run("explain", async () => {
       const sel = getSelection().trim();
       if (!sel) throw new Error("Seleziona prima nel testo il concetto da spiegare.");
-      const r = await aiPost<{ explanation: string }>("explain", { text: sel, context: content.slice(0, 8000) }, "spiegazione semplificata");
+      const r = await aiPost<{ explanation: string }>(
+        "explain",
+        { text: protectSecrets(sel).text, context: protectSecrets(content.slice(0, 8000)).text },
+        "spiegazione semplificata",
+      );
       setExplain({ text: sel, result: r.explanation });
+      setSummary(null);
       setSuggestions(null);
       setReorg(null);
     });
@@ -104,6 +137,7 @@ export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-1.5 border-b border-line p-3">
+        <ActionBtn icon={<FileText size={15} />} label="Riassumi" busy={busy === "summary"} onClick={() => setPickLevel(!pickLevel)} />
         <ActionBtn icon={<SpellCheck size={15} />} label="Correggi forma" busy={busy === "forma"} onClick={() => correct(["forma"], "forma")} />
         <ActionBtn icon={<GraduationCap size={15} />} label="Verifica concetti" busy={busy === "concetto"} onClick={() => correct(["concetto"], "concetto")} />
         <ActionBtn icon={<PuzzleIcon size={15} />} label="Trova lacune" busy={busy === "lacuna"} onClick={() => correct(["lacuna"], "lacuna")} />
@@ -111,6 +145,19 @@ export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
         <ActionBtn icon={<ListTree size={15} />} label="Riordina" busy={busy === "reorg"} onClick={reorganize} />
         <ActionBtn icon={<Lightbulb size={15} />} label="Spiega selezione" busy={busy === "explain"} onClick={explainSel} />
       </div>
+
+      {pickLevel && (
+        <div className="border-b border-line p-3">
+          <p className="mb-2 text-xs text-muted">Quanto deve essere sintetico il riassunto?</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {(["essenziale", "standard", "dettagliato"] as const).map((l) => (
+              <button key={l} className="btn !px-1 text-xs capitalize" onClick={() => summarize(l)} disabled={!!busy}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {busy && (
@@ -121,10 +168,38 @@ export function AiPanel({ content, getSelection, onApply, onClose }: Props) {
         )}
         {err && <p className="rounded-lg bg-red-50 p-2 text-sm text-danger dark:bg-red-950/40">{err}</p>}
 
-        {!busy && !suggestions && !reorg && !explain && !err && (
+        {summary && (
+          <div className="space-y-3">
+            <p className="text-sm font-medium">Riassunto ({summary.level})</p>
+            <div className="card max-h-[50vh] overflow-y-auto p-3 text-sm">
+              <MarkdownView content={summary.text} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="btn-primary text-xs"
+                onClick={() => {
+                  const quoted = summary.text.split("\n").map((l) => (l ? `> ${l}` : ">")).join("\n");
+                  onApply(`> **📝 Riassunto**\n>\n${quoted}\n\n---\n\n${content}`);
+                  setSummary(null);
+                }}
+              >
+                Inserisci in cima alla nota
+              </button>
+              <button className="btn text-xs" onClick={() => onSaveSummary(summary.text)}>
+                Salva come nuova nota
+              </button>
+              <button className="btn text-xs" onClick={() => void navigator.clipboard.writeText(summary.text)}>
+                Copia
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!busy && !suggestions && !reorg && !explain && !summary && !err && (
           <div className="space-y-2 text-sm text-muted">
             <p>Le correzioni sono sempre <b>proposte</b>: decidi tu quali applicare, una per una o tutte insieme.</p>
             <ul className="list-disc space-y-1 pl-5">
+              <li><b>Riassumi</b>: solo le informazioni importanti, in tre livelli di sintesi.</li>
               <li><b>Forma</b>: ortografia, punteggiatura, abbreviazioni.</li>
               <li><b>Concetti</b>: errori o imprecisioni nei contenuti, con spiegazione.</li>
               <li><b>Lacune</b>: passaggi mancanti da integrare.</li>
