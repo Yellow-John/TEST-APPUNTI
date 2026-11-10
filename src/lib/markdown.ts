@@ -11,6 +11,8 @@ export function extractWikiLinks(content: string): string[] {
 /** Trasforma [[Titolo]] e ==evidenziato== in sintassi che il renderer capisce. */
 export function preprocess(content: string): string {
   return content
+    // figura che il browser sta ancora ritagliando dalla foto
+    .replace(/\[\[FIGURA:\d+\]\]/g, "_🖼️ figura in preparazione…_")
     // "$$ formula $$" su una sola riga → formula a blocco (remark-math la tratterebbe come in linea)
     .replace(/^[ \t]*\$\$([^\n]+?)\$\$[ \t]*$/gm, (_m, f: string) => `$$\n${f.trim()}\n$$`)
     .replace(WIKI_RE, (_m, target: string, label?: string) => {

@@ -5,21 +5,17 @@ import {
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { AiError, aiPost } from "@/lib/ai-client";
+import { AiError } from "@/lib/ai-client";
+import { startOcrJob } from "@/lib/jobs-client";
+import { offlineOcr } from "@/lib/ocr-offline";
 import { db } from "@/lib/db";
-import { fileUrl, uploadFile } from "@/lib/files";
+import { uploadFile } from "@/lib/files";
 import {
-  type Adjust, type Crop, type Filter, autoCrop, canvasToBlob, compressCanvas, cropCanvas, defaultAdjust, loadImage, renderAdjusted,
+  type Adjust, type Crop, type Filter, autoCrop, canvasToBlob, compressCanvas, defaultAdjust, loadImage, renderAdjusted,
 } from "@/lib/image";
 import { createNote } from "@/lib/repo";
 
 type Page = { id: string; file: Blob; img: HTMLImageElement; adjust: Adjust; thumb: string };
-type OcrResult = {
-  title: string;
-  markdown: string;
-  tags: string[];
-  figures: { id: number; page: number; box_2d: number[]; caption: string }[];
-};
 
 export default function CapturePage() {
   const router = useRouter();
@@ -83,46 +79,27 @@ export default function CapturePage() {
     });
   }
 
+  async function uploadPages(): Promise<string[]> {
+    const folder = `scans/${new Date().toISOString().slice(0, 10)}`;
+    const paths: string[] = [];
+    for (const [i, p] of pages.entries()) {
+      setStatus(`Caricamento pagina ${i + 1} di ${pages.length}… (non chiudere l'app)`);
+      const { blob, ext } = await compressCanvas(renderAdjusted(p.img, p.adjust, 1800), 0.8);
+      paths.push(await uploadFile(blob, folder, ext));
+    }
+    return paths;
+  }
+
   async function transcribe() {
     if (!pages.length) return;
     setErr("");
     try {
       setStatus("Preparazione delle immagini…");
-      const canvases = pages.map((p) => renderAdjusted(p.img, p.adjust, 1800));
-      const folder = `scans/${new Date().toISOString().slice(0, 10)}`;
-      const paths: string[] = [];
-      for (const [i, c] of canvases.entries()) {
-        setStatus(`Caricamento pagina ${i + 1} di ${canvases.length}…`);
-        const { blob, ext } = await compressCanvas(c, 0.8);
-        paths.push(await uploadFile(blob, folder, ext));
-      }
-      setStatus("Trascrizione con l'AI… (circa 20-60 secondi)");
-      const r = await aiPost<OcrResult>("ocr", { paths, hint: hint || undefined }, `trascrizione di ${paths.length} foto`);
-
-      let md = r.markdown;
-      for (const fig of r.figures) {
-        const src = canvases[fig.page] ?? canvases[0];
-        setStatus(`Estrazione figura ${fig.id}…`);
-        try {
-          const [ymin, xmin, ymax, xmax] = fig.box_2d.map((v) => v / 1000);
-          const crop = cropCanvas(src, { x: xmin, y: ymin, w: xmax - xmin, h: ymax - ymin });
-          const { blob, ext } = await compressCanvas(crop, 0.82);
-          const p = await uploadFile(blob, folder, ext);
-          md = md.replace(`[[FIGURA:${fig.id}]]`, `\n![${fig.caption}](${fileUrl(p)})\n`);
-        } catch {
-          md = md.replace(`[[FIGURA:${fig.id}]]`, `_[Figura: ${fig.caption}]_`);
-        }
-      }
-      md = md.replace(/\[\[FIGURA:\d+\]\]/g, "");
-
-      const note = await createNote({
-        title: r.title,
-        content: md.trim(),
-        tags: r.tags.map((t) => t.toLowerCase().replace(/^#/, "")),
-        notebook_id: notebookId || null,
-        source: { type: "photo", files: paths },
-      });
-      router.replace(`/note?id=${note.id}`);
+      const paths = await uploadPages();
+      setStatus("Avvio della trascrizione…");
+      // il server lavora in background: si può uscire dall'app, la nota si completa da sola
+      const id = await startOcrJob({ paths, hint, notebookId: notebookId || null });
+      router.replace(`/note?id=${id}`);
     } catch (e) {
       if (e instanceof AiError && e.status === 429) setQuotaHit(true);
       if ((e as Error).message !== "Annullato") setErr((e as Error).message);
@@ -134,36 +111,10 @@ export default function CapturePage() {
   async function transcribeOffline() {
     setErr("");
     try {
-      setStatus("Caricamento del motore OCR… (solo la prima volta)");
-      const { createWorker } = await import("tesseract.js");
-      const worker = await createWorker("ita+eng", 1, {
-        workerPath: "/tesseract/worker.min.js",
-        corePath: "/tesseract/core",
-        langPath: "/tesseract/lang",
-      });
-      const texts: string[] = [];
-      const canvases = pages.map((p) => renderAdjusted(p.img, p.adjust, 2200));
-      for (const [i, c] of canvases.entries()) {
-        setStatus(`Riconoscimento pagina ${i + 1} di ${canvases.length}…`);
-        const { data } = await worker.recognize(c);
-        // mantieni gli a capo del foglio (in Markdown un singolo a capo non spezza la riga)
-        texts.push(data.text.trim().replace(/\n{3,}/g, "\n\n").replace(/([^\n])\n(?!\n)/g, "$1  \n"));
-      }
-      await worker.terminate();
+      const content = await offlineOcr(pages.map((p) => renderAdjusted(p.img, p.adjust, 2200)), setStatus);
       setStatus("Salvataggio…");
-      const folder = `scans/${new Date().toISOString().slice(0, 10)}`;
-      const paths: string[] = [];
-      for (const p of pages) {
-        const { blob, ext } = await compressCanvas(renderAdjusted(p.img, p.adjust, 1800), 0.8);
-        paths.push(await uploadFile(blob, folder, ext));
-      }
-      const body = texts.map((t, i) => (texts.length > 1 ? `## Pagina ${i + 1}\n\n${t}` : t)).join("\n\n");
-      const note = await createNote({
-        title: "",
-        content: `> Trascrizione automatica senza AI: controlla il testo, puoi migliorarlo dopo con l'assistente AI.\n\n${body}`,
-        notebook_id: notebookId || null,
-        source: { type: "photo", files: paths },
-      });
+      const paths = await uploadPages();
+      const note = await createNote({ title: "", content, notebook_id: notebookId || null, source: { type: "photo", files: paths } });
       router.replace(`/note?id=${note.id}`);
     } catch (e) {
       setErr((e as Error).message);

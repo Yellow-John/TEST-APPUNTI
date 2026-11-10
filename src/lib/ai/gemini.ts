@@ -13,7 +13,8 @@ let _ai: GoogleGenAI | null = null;
 export function gemini() {
   if (!process.env.GEMINI_API_KEY) throw new ConfigError("Manca GEMINI_API_KEY nelle variabili d'ambiente.");
   // v1beta: necessaria per gli alias "-latest", l'output JSON con schema e la Files API (l'SDK usa "v1" di default)
-  if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { apiVersion: "v1beta" } });
+  // timeout: meglio un errore chiaro che superare il limite di 300 s di Vercel (errore 504)
+  if (!_ai) _ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { apiVersion: "v1beta", timeout: 240_000 } });
   return _ai;
 }
 
@@ -197,19 +198,29 @@ export async function streamAI(c: AiCall): Promise<ReadableStream<Uint8Array>> {
   });
 }
 
-/** Converte gli errori in una risposta JSON leggibile. */
-export function aiErrorResponse(e: unknown) {
-  if (e instanceof QuotaError) return Response.json({ error: e.message, code: "quota" }, { status: 429 });
-  if (e instanceof RefusalError) return Response.json({ error: e.message }, { status: 422 });
-  if (e instanceof ConfigError) return Response.json({ error: e.message }, { status: 500 });
+/** Messaggio leggibile (e codice) per un errore delle funzioni AI. */
+export function aiErrorInfo(e: unknown): { message: string; status: number; code?: string } {
+  if (e instanceof QuotaError) return { message: e.message, status: 429, code: "quota" };
+  if (e instanceof RefusalError) return { message: e.message, status: 422 };
+  if (e instanceof ConfigError) return { message: e.message, status: 500 };
   if (e instanceof ApiError) {
-    if (e.status === 400 && /API key/i.test(e.message)) return Response.json({ error: "Chiave API di Gemini non valida." }, { status: 500 });
-    if (e.status === 401 || e.status === 403) return Response.json({ error: "Chiave API di Gemini non valida o non autorizzata." }, { status: 500 });
-    if (e.status === 503) return Response.json({ error: "Gemini è sovraccarico in questo momento, riprova tra poco." }, { status: 503 });
-    return Response.json({ error: `Errore AI (${e.status}): ${e.message}` }, { status: 502 });
+    if (e.status === 400 && /API key/i.test(e.message)) return { message: "Chiave API di Gemini non valida.", status: 500 };
+    if (e.status === 401 || e.status === 403) return { message: "Chiave API di Gemini non valida o non autorizzata.", status: 500 };
+    if (e.status === 503) return { message: "Gemini è sovraccarico in questo momento, riprova tra poco.", status: 503 };
+    return { message: `Errore AI (${e.status}): ${e.message}`, status: 502 };
+  }
+  const msg = (e as Error)?.message || "Errore sconosciuto";
+  if ((e as Error)?.name === "AbortError" || /timed? ?out|timeout|aborted/i.test(msg)) {
+    return { message: "L'AI ha impiegato troppo tempo a rispondere. Riprova (con meno pagine o un file più piccolo).", status: 504 };
   }
   console.error(e);
-  return Response.json({ error: (e as Error).message || "Errore sconosciuto" }, { status: 500 });
+  return { message: msg, status: 500 };
+}
+
+/** Converte gli errori in una risposta JSON leggibile. */
+export function aiErrorResponse(e: unknown) {
+  const { message, status, code } = aiErrorInfo(e);
+  return Response.json({ error: message, ...(code ? { code } : {}) }, { status });
 }
 
 /** Scarica un file dallo storage dell'utente. */
@@ -240,4 +251,17 @@ export async function uploadLargeFile(blob: Blob, mimeType: string): Promise<{ p
       await ai.files.delete({ name: file.name! }).catch(() => {});
     },
   };
+}
+
+/** Diagnostica: elenco dei modelli disponibili per la chiave. */
+export async function diagListModels() {
+  return listModels();
+}
+
+/** Diagnostica: risposta minima da un modello, con il nome del modello effettivamente usato. */
+export async function diagPing(tier: Tier) {
+  return onTier(tier, async (model) => {
+    const res = await gemini().models.generateContent({ model, contents: "Rispondi solo con la parola OK." });
+    return { model, text: (res.text ?? "").trim().slice(0, 40), finishReason: res.candidates?.[0]?.finishReason };
+  });
 }

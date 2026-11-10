@@ -9,10 +9,24 @@ export type Notebook = {
   deleted_at: string | null;
 };
 
+export type Figure = { id: number; page: number; box_2d: number[]; caption: string };
+
+/** Parametri per ripetere un'elaborazione AI fallita. */
+export type NoteJob =
+  | { kind: "ocr"; paths: string[]; hint?: string }
+  | { kind: "import"; path: string; filename: string; mode: "full" | "smart"; level: SummaryLevel };
+
 export type NoteSource = {
   type?: "manual" | "photo" | "pdf" | "import" | "slides";
   files?: string[]; // percorsi nello storage
   summary_level?: "essenziale" | "standard" | "dettagliato";
+  /** elaborazione AI in background: in corso o fallita */
+  status?: "processing" | "error";
+  error?: string;
+  error_code?: string;
+  job?: NoteJob;
+  /** figure da ritagliare dalle foto (fatto dal browser all'apertura della nota) */
+  figures?: Figure[];
 };
 
 export type Note = {

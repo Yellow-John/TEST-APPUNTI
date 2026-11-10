@@ -183,6 +183,8 @@ function NoteRow({ n, trash, nbName }: { n: Note; trash: boolean; nbName?: strin
           {n.is_locked && <Lock size={13} className="shrink-0 text-muted" />}
           <span className="truncate font-semibold">{noteTitle(n)}</span>
           {n.is_favorite && <Star size={13} className="shrink-0 fill-amber-400 text-amber-400" />}
+          {n.source?.status === "processing" && <span className="chip shrink-0 !text-accent">⏳ in elaborazione</span>}
+          {n.source?.status === "error" && <span className="chip shrink-0 !text-danger">⚠️ errore</span>}
         </div>
         {preview && <p className="mt-0.5 line-clamp-2 text-sm text-muted">{preview}</p>}
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">

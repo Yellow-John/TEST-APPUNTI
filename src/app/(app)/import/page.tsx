@@ -4,10 +4,10 @@ import { CheckCircle2, FileUp, Loader2, Sparkles, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { aiPost } from "@/lib/ai-client";
 import { db } from "@/lib/db";
 import { uploadFile } from "@/lib/files";
 import { extractText, importDirect } from "@/lib/importers";
+import { startImportJob } from "@/lib/jobs-client";
 import { createNote } from "@/lib/repo";
 import type { SummaryLevel } from "@/lib/types";
 
@@ -68,33 +68,20 @@ export default function ImportPage() {
           set(i, { status: "done", msg: e === "zip" && docs.length === 0 ? "Backup ripristinato" : `${docs.length} note create`, noteId: docs.length === 1 ? lastId : undefined });
           continue;
         }
-        let body: Record<string, unknown>;
+        let id: string;
         if (e === "pdf") {
           if (f.size > 30 * 1024 * 1024) throw new Error("PDF troppo grande (max 30 MB)");
-          set(i, { msg: "Caricamento…" });
+          set(i, { msg: "Caricamento… (non chiudere l'app)" });
           const path = await uploadFile(f, "imports", "pdf");
-          body = { path, filename: f.name, mode, level };
+          id = await startImportJob({ path, filename: f.name, kind: "pdf", mode, level, notebookId: notebookId || null });
         } else {
           set(i, { msg: "Lettura del file…" });
           const text = await extractText(f);
           if (!text.trim()) throw new Error("Nessun testo trovato nel file");
-          body = { text, filename: f.name, mode, level };
+          id = await startImportJob({ text, filename: f.name, kind: e === "pptx" ? "slides" : "import", mode, level, notebookId: notebookId || null });
         }
-        set(i, { msg: mode === "smart" ? "Creazione appunti intelligenti… (può richiedere qualche minuto)" : "Conversione…" });
-        const r = await aiPost<{ title: string; markdown: string; tags: string[] }>(
-          "import",
-          body,
-          mode === "smart" ? `riassunto intelligente di "${f.name}"` : `conversione di "${f.name}"`,
-        );
-        const n = await createNote({
-          title: r.title,
-          content: r.markdown,
-          tags: r.tags.map((t) => t.toLowerCase().replace(/^#/, "")),
-          notebook_id: notebookId || null,
-          source: { type: e === "pptx" ? "slides" : e === "pdf" ? "pdf" : "import", summary_level: mode === "smart" ? level : undefined },
-        });
-        lastId = n.id;
-        set(i, { status: "done", msg: "Nota creata", noteId: n.id });
+        lastId = id;
+        set(i, { status: "done", msg: "Avviato: l'AI lo elabora in background (puoi chiudere l'app)", noteId: id });
       } catch (err) {
         set(i, { status: "error", msg: (err as Error).message });
       }

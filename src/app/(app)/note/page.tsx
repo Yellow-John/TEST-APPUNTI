@@ -11,6 +11,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { AiPanel } from "@/components/note/AiPanel";
 import { Editor, type EditorHandle } from "@/components/note/Editor";
 import { ImageAnnotator } from "@/components/note/ImageAnnotator";
+import { JobStatus } from "@/components/note/JobStatus";
 import { ShareDialog } from "@/components/note/ShareDialog";
 import { TagEditor } from "@/components/note/TagEditor";
 import { PinDialog } from "@/components/PinDialog";
@@ -20,6 +21,7 @@ import { db } from "@/lib/db";
 import { exportDocx, exportMarkdown, exportPdf } from "@/lib/export";
 import { fileUrl } from "@/lib/files";
 import { useWikiIndex } from "@/lib/hooks";
+import { cropPendingFigures } from "@/lib/jobs-client";
 import { extractWikiLinks } from "@/lib/markdown";
 import { createNote, createNotebook, noteTitle, restoreNote, trashNote, updateNote } from "@/lib/repo";
 import type { Note } from "@/lib/types";
@@ -47,6 +49,7 @@ export default function NotePage() {
   if (!id) return <div className="p-8 text-muted">Creazione nota…</div>;
   if (note === undefined) return <div className="p-8 text-muted">Caricamento…</div>;
   if (!note) return <div className="p-8 text-muted">Nota non trovata. <Link href="/notes" className="text-accent underline">Torna alle note</Link></div>;
+  if (note.source?.status) return <JobStatus note={note} />;
   return <NoteEditor key={note.id} note={note} startInEdit={!!sp.get("edit")} />;
 }
 
@@ -82,6 +85,11 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
     const me = noteTitle({ title, content }).toLowerCase();
     return allNotes.filter((n) => n.id !== note.id && !n.deleted_at && !n.is_locked && extractWikiLinks(n.content).includes(me));
   }, [allNotes, note.id, title, content]);
+
+  // figure indicate dall'AI durante la trascrizione: ritagliate dalle foto originali
+  useEffect(() => {
+    if (note.source?.figures?.length) void cropPendingFigures(note);
+  }, [note]);
 
   // decifra se la chiave è già in memoria
   useEffect(() => {
