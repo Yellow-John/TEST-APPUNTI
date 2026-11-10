@@ -1,5 +1,6 @@
-import { ApiError, FileState, GoogleGenAI, createPartFromUri, type Content, type Part } from "@google/genai";
+import { ApiError, FileState, GoogleGenAI, createPartFromUri, type Content, type GenerateContentResponse, type Part } from "@google/genai";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { FreeLLMError, freeFirst, UnsupportedInput, freeChat, freeEnabled, freeStream } from "./freellm";
 
 // Piano gratuito di Gemini: la quota giornaliera è PER MODELLO (es. 20 richieste/giorno sul Flash più recente).
 // Per questo l'app non usa un solo modello ma una catena: tutti i Flash stabili disponibili per la chiave,
@@ -161,8 +162,38 @@ export async function logUsage(sb: SupabaseClient, userId: string, feature: stri
   await sb.from("ai_usage").insert({ user_id: userId, feature, model, input_tokens: input, output_tokens: output, cost_usd: 0 });
 }
 
+/** Prova i provider in ordine: Gemini (catena di modelli) e, se configurato, FreeLLMAPI. */
+async function viaProviders<T>(gem: () => Promise<T>, free: () => Promise<T>): Promise<T> {
+  if (!freeEnabled()) return gem();
+  const order = freeFirst() ? [free, gem] : [gem, free];
+  const errors: unknown[] = [];
+  for (const run of order) {
+    try {
+      return await run();
+    } catch (e) {
+      if (e instanceof RefusalError || e instanceof ConfigError) throw e;
+      errors.push(e);
+      console.warn(`Provider AI non disponibile: ${(e as Error).message?.slice(0, 160)}`);
+    }
+  }
+  // l'errore più utile: quota, altrimenti quello di Gemini (FreeLLMAPI può non supportare l'input, es. PDF)
+  const useful = errors.filter((e) => !(e instanceof UnsupportedInput));
+  throw useful.find((e) => e instanceof QuotaError) ?? useful[useful.length - 1] ?? errors[0];
+}
+
 /** Chiamata completa che restituisce il testo finale. */
 export async function callAI(c: AiCall): Promise<string> {
+  return viaProviders(
+    () => callGemini(c),
+    async () => {
+      const r = await freeChat(c);
+      await logUsage(c.sb, c.userId, c.feature, r.model, r.input, r.output);
+      return r.text;
+    },
+  );
+}
+
+async function callGemini(c: AiCall): Promise<string> {
   return withFallback(c, async (model) => {
     const res = await gemini().models.generateContent({ model, contents: contents(c), config: config(c) });
     const u = res.usageMetadata;
@@ -194,10 +225,27 @@ export async function callAIJSON<T>(c: AiCall & { schema: Record<string, unknown
 /** Streaming del testo verso il browser (chat). */
 export async function streamAI(c: AiCall): Promise<ReadableStream<Uint8Array>> {
   const enc = new TextEncoder();
-  const { stream, model } = await withFallback(c, async (model) => ({
-    model,
-    stream: await gemini().models.generateContentStream({ model, contents: contents(c), config: config(c) }),
-  }));
+  const opened = await viaProviders<{ model: string; stream?: AsyncGenerator<GenerateContentResponse>; chunks?: AsyncGenerator<string> }>(
+    () => withFallback(c, async (model) => ({ model, stream: await gemini().models.generateContentStream({ model, contents: contents(c), config: config(c) }) })),
+    () => freeStream(c),
+  );
+  if (opened.chunks) {
+    const { chunks, model } = opened;
+    return new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const t of chunks) controller.enqueue(enc.encode(t));
+          await logUsage(c.sb, c.userId, c.feature, model, 0, 0);
+        } catch (e) {
+          controller.enqueue(enc.encode(`\n\n_Errore: ${(e as Error).message}_`));
+        } finally {
+          controller.close();
+        }
+      },
+    });
+  }
+  const { model } = opened;
+  const stream = opened.stream!;
   return new ReadableStream({
     async start(controller) {
       let input = 0;
@@ -229,6 +277,11 @@ export function aiErrorInfo(e: unknown): { message: string; status: number; code
   if (e instanceof QuotaError) return { message: e.message, status: 429, code: "quota" };
   if (e instanceof RefusalError) return { message: e.message, status: 422 };
   if (e instanceof ConfigError) return { message: e.message, status: 500 };
+  if (e instanceof FreeLLMError) {
+    if (e.status === 401 || e.status === 403) return { message: "Chiave FreeLLMAPI non valida (controlla FREELLMAPI_KEY).", status: 500 };
+    if (e.status === 429) return { message: "Anche i modelli gratuiti di FreeLLMAPI hanno esaurito la quota: riprova più tardi.", status: 429, code: "quota" };
+    return { message: e.message, status: 502 };
+  }
   if (e instanceof ApiError) {
     if (e.status === 400 && /API key/i.test(e.message)) return { message: "Chiave API di Gemini non valida.", status: 500 };
     if (e.status === 401 || e.status === 403) return { message: "Chiave API di Gemini non valida o non autorizzata.", status: 500 };

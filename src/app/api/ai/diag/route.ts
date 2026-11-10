@@ -1,3 +1,4 @@
+import { freeDiag } from "@/lib/ai/freellm";
 import { aiErrorInfo, diagChain, diagListModels, diagTry } from "@/lib/ai/gemini";
 import { requireUser } from "@/lib/server-auth";
 
@@ -5,7 +6,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Pagina di diagnostica: apri /api/ai/diag da browser (dopo aver fatto l'accesso) e manda il risultato.
-// Non mostra chiavi né dati personali. Usa al massimo 2 richieste della quota gratuita.
+// Non mostra chiavi né dati personali. Usa al massimo 2 richieste della quota gratuita di Gemini (+1 di FreeLLMAPI se configurato).
 export async function GET() {
   const t0 = Date.now();
   const auth = await requireUser();
@@ -38,6 +39,7 @@ export async function GET() {
   await timed("prova_compiti_pesanti", () => diagTry("main"));
   await timed("prova_compiti_leggeri", () => diagTry("lite"));
   await timed("catena_modelli", () => diagChain());
+  await timed("freellmapi", () => freeDiag());
 
   steps.totale_ms = Date.now() - t0;
   return new Response(JSON.stringify(steps, null, 2), { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
