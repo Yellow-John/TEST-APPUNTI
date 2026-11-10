@@ -14,7 +14,6 @@ import { ImageAnnotator } from "@/components/note/ImageAnnotator";
 import { JobStatus } from "@/components/note/JobStatus";
 import { ShareDialog } from "@/components/note/ShareDialog";
 import { TagEditor } from "@/components/note/TagEditor";
-import { TeachCorrections } from "@/components/note/TeachCorrections";
 import { PinDialog } from "@/components/PinDialog";
 import { aiPost } from "@/lib/ai-client";
 import { decryptText, encryptText, pinSession } from "@/lib/crypto";
@@ -352,8 +351,6 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
             <TagEditor tags={note.tags} onChange={(tags) => updateNote(note.id, { tags })} allTags={allTags} onSuggest={suggestTags} suggesting={suggesting} />
             {note.is_locked && <span className="chip"><Lock size={11} /> Cifrata</span>}
           </div>
-
-          {!note.is_locked && <TeachCorrections note={note} content={content} />}
 
           <div className={`mt-4 grid gap-4 ${mode === "split" ? "lg:grid-cols-2" : ""}`}>
             {(mode === "edit" || mode === "split") && (

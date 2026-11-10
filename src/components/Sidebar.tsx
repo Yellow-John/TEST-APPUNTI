@@ -1,7 +1,7 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
-  Archive, BookOpen, ChevronRight, FolderPlus, Hash, Inbox, MessageCircle, Network, Pencil,
+  Archive, ChevronRight, FolderPlus, Hash, Inbox, MessageCircle, Network, Pencil,
   Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool,
 } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { isPurged } from "@/lib/export";
 import { createNotebook, deleteNotebook, updateNotebook } from "@/lib/repo";
 import type { Notebook } from "@/lib/types";
+import { AppLogo } from "./AppLogo";
 import { SyncBadge } from "./SyncBadge";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
@@ -54,7 +55,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <nav className="flex h-full flex-col gap-1 overflow-y-auto p-3" aria-label="Navigazione">
       <div className="mb-2 flex items-center justify-between px-1">
         <Link href="/notes" onClick={onNavigate} className="flex items-center gap-2 text-lg font-bold">
-          <BookOpen size={20} className="text-accent" /> Appunti
+          <AppLogo size={26} /> Appunti
         </Link>
         <SyncBadge />
       </div>

@@ -8,10 +8,10 @@ type Source = { n: number; id: string; title: string };
 type Msg = { role: "user" | "assistant"; content: string; sources?: Source[] };
 
 const EXAMPLES = [
-  "Riassumimi cosa ho scritto sulla fotosintesi",
-  "Quali sono le differenze tra i concetti che ho annotato su X e Y?",
-  "Fammi 3 domande d'esame sui miei appunti di storia",
-  "Ci sono errori nei miei appunti sulle derivate?",
+  "Riassumimi cosa ho annotato su Keycloak",
+  "Quali passaggi ho scritto per configurare un mapper?",
+  "Che differenza c'è tra OAuth2 e OpenID Connect secondo i miei appunti?",
+  "Ci sono errori o passaggi mancanti nei miei appunti sul deploy?",
 ];
 
 export default function ChatPage() {

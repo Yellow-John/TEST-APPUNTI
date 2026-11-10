@@ -15,7 +15,6 @@ export default function SettingsPage() {
   const user = useUser();
   const router = useRouter();
   const [theme, setTheme] = useState("system");
-  const [font, setFont] = useState(1);
   const [confirmAi, setConfirmAi] = useState(false);
   const [usage, setUsage] = useState<Usage[]>([]);
   const [saved, setSaved] = useState("");
@@ -25,7 +24,6 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setTheme(localStorage.getItem("theme") || "system");
-    setFont(Number(localStorage.getItem("fontScale") || 1));
     supabase()
       .from("user_settings")
       .select("confirm_before_ai")
@@ -55,11 +53,6 @@ export default function SettingsPage() {
     localStorage.setItem("theme", t);
     const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
-  }
-  function applyFont(f: number) {
-    setFont(f);
-    localStorage.setItem("fontScale", String(f));
-    document.documentElement.style.setProperty("--font-scale", String(f));
   }
   async function saveAi() {
     const { error } = await supabase().from("user_settings").upsert({ user_id: user!.id, confirm_before_ai: confirmAi });
@@ -96,13 +89,9 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
-        <label className="mt-4 block text-sm">
-          Dimensione del testo: {Math.round(font * 100)}%
-          <input type="range" min={0.85} max={1.4} step={0.05} value={font} onChange={(e) => applyFont(+e.target.value)} className="w-full accent-[var(--accent)]" />
-        </label>
       </Section>
 
-      <Section title="Intelligenza artificiale (gratuita)">
+      <Section title="Intelligenza artificiale">
         <div className="mb-4 rounded-lg bg-panel-2 p-3">
           <div className="flex items-baseline justify-between">
             <p className="text-sm text-muted">Richieste AI di oggi</p>
@@ -125,11 +114,6 @@ export default function SettingsPage() {
             </table>
           )}
         </div>
-        <p className="mb-3 text-sm text-muted">
-          L&apos;AI usa i piani gratuiti di Google Gemini e, se configurati, di Mistral, Groq, OpenRouter e Cerebras: <b>costo zero</b>. Ogni
-          modello ha un limite di richieste al giorno: quando uno è esaurito l&apos;app passa da sola al successivo, e le quote si rinnovano ogni giorno.
-          Le foto si possono comunque trascrivere senza AI (solo testo stampato).
-        </p>
         <p className="mb-3 rounded-lg border border-line p-2 text-xs text-muted">
           🔒 Privacy: con i piani gratuiti i provider possono usare i contenuti inviati all&apos;AI per migliorare i loro servizi. Evita di elaborare con l&apos;AI
           appunti con dati personali o riservati (le note bloccate con PIN non vengono mai inviate).

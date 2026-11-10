@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       placeholderTitle: "Trascrizione in corso…",
       source: { type: "photo", files: paths, job: { kind: "ocr", paths, hint } },
       work: async () => {
-        // campioni della grafia, dizionario personale ed errori corretti in passato
+        // campioni della grafia dell'utente come riferimento
         const parts: Part[] = await handwritingParts(auth.sb, auth.user.id).catch(() => []);
         for (const [i, p] of paths.entries()) {
           parts.push({ text: `Pagina ${i} (foto ${i + 1}):` });
@@ -53,10 +53,7 @@ export async function POST(req: Request) {
           title: r.title,
           content: r.markdown.trim(),
           tags: r.tags.map((t) => t.toLowerCase().replace(/^#/, "")),
-          source: {
-            figures: r.figures.filter((f) => Array.isArray(f.box_2d) && f.box_2d.length === 4),
-            ocr_original: r.markdown.trim(),
-          },
+          source: { figures: r.figures.filter((f) => Array.isArray(f.box_2d) && f.box_2d.length === 4) },
         };
       },
     });

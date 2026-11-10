@@ -13,7 +13,6 @@ type Draft = { img: HTMLImageElement; adjust: Adjust; preview: string };
 
 export default function HandwritingPage() {
   const [profile, setProfile] = useState<HandwritingProfile | null>(null);
-  const [glossary, setGlossary] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftDesc, setDraftDesc] = useState(ALPHABET_TEMPLATE);
   const [busy, setBusy] = useState("");
@@ -22,10 +21,7 @@ export default function HandwritingPage() {
 
   useEffect(() => {
     loadProfile()
-      .then((p) => {
-        setProfile(p);
-        setGlossary(p.glossary.join("\n"));
-      })
+      .then(setProfile)
       .catch((e) => setMsg((e as Error).message));
   }, []);
 
@@ -86,7 +82,7 @@ export default function HandwritingPage() {
 
       {/* campioni */}
       <section className="card p-4">
-        <h2 className="font-semibold">1. Campioni della tua scrittura</h2>
+        <h2 className="font-semibold">Campioni della tua scrittura</h2>
         <p className="mb-3 mt-1 text-sm text-muted">
           Fotografa un foglio con l&apos;alfabeto (stampatello minuscolo, maiuscolo e corsivo) o una pagina di appunti, e scrivi cosa c&apos;è scritto. Ne vengono usati al
           massimo 3.
@@ -147,65 +143,6 @@ export default function HandwritingPage() {
           </button>
         )}
         <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files?.[0]) void pick(e.target.files[0]); e.target.value = ""; }} />
-      </section>
-
-      {/* osservazioni e dizionario */}
-      <section className="card space-y-3 p-4">
-        <h2 className="font-semibold">2. Osservazioni e parole frequenti</h2>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Particolarità della tua scrittura (facoltativo)</span>
-          <textarea
-            className="input min-h-[4rem]"
-            placeholder="Es. la mia «r» sembra una «v»; scrivo la «t» senza taglio; uso → per indicare conseguenze; «xké» = perché"
-            value={profile.notes}
-            onChange={(e) => setProfile({ ...profile, notes: e.target.value })}
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Dizionario personale: nomi, sigle e termini tecnici (uno per riga)</span>
-          <textarea className="input min-h-[6rem]" placeholder={"Keycloak\nRedmine\nmapper"} value={glossary} onChange={(e) => setGlossary(e.target.value)} />
-        </label>
-        <button
-          className="btn-primary"
-          disabled={!!busy}
-          onClick={() =>
-            persist({
-              ...profile,
-              glossary: [...new Set(glossary.split("\n").map((s) => s.trim()).filter(Boolean))],
-            })
-          }
-        >
-          <Save size={15} /> Salva
-        </button>
-      </section>
-
-      {/* correzioni */}
-      <section className="card p-4">
-        <h2 className="font-semibold">3. Errori imparati dalle tue correzioni ({profile.corrections.length})</h2>
-        <p className="mb-3 mt-1 text-sm text-muted">
-          Quando correggi una nota trascritta, nella nota compare il pulsante <b>&quot;Insegna all&apos;AI le correzioni&quot;</b>: le coppie che confermi finiscono qui e
-          vengono usate nelle trascrizioni successive (le ultime 80).
-        </p>
-        {profile.corrections.length === 0 ? (
-          <p className="text-sm text-muted">Nessuna correzione ancora.</p>
-        ) : (
-          <ul className="max-h-72 divide-y divide-line overflow-y-auto text-sm">
-            {[...profile.corrections].reverse().map((c) => (
-              <li key={`${c.wrong}→${c.right}`} className="flex items-center gap-2 py-1.5">
-                <span className="text-danger line-through">{c.wrong}</span>
-                <span className="text-muted">→</span>
-                <span className="flex-1 text-ok">{c.right}</span>
-                <button
-                  className="btn-icon !h-7 !w-7 hover:!text-danger"
-                  aria-label="Rimuovi"
-                  onClick={() => persist({ ...profile, corrections: profile.corrections.filter((x) => x !== c) })}
-                >
-                  <X size={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       {msg && <p className="sticky bottom-20 rounded-lg bg-panel-2 p-2 text-center text-sm md:bottom-4">{msg}</p>}

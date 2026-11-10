@@ -27,8 +27,6 @@ export type NoteSource = {
   job?: NoteJob;
   /** figure da ritagliare dalle foto (fatto dal browser all'apertura della nota) */
   figures?: Figure[];
-  /** testo prodotto dalla trascrizione, per imparare dalle correzioni dell'utente */
-  ocr_original?: string;
 };
 
 export type Note = {
@@ -61,12 +59,6 @@ export type SummaryLevel = "essenziale" | "standard" | "dettagliato";
 
 /** Profilo della grafia dell'utente: usato come riferimento in ogni trascrizione (salvato nello storage). */
 export type HandwritingSample = { path: string; description: string };
-export type HandwritingCorrection = { wrong: string; right: string; at: string };
-export type HandwritingProfile = {
-  samples: HandwritingSample[];
-  notes: string; // osservazioni libere, es. "la mia r sembra una v"
-  glossary: string[]; // parole e nomi usati spesso
-  corrections: HandwritingCorrection[]; // errori di lettura corretti in passato
-};
-export const emptyProfile = (): HandwritingProfile => ({ samples: [], notes: "", glossary: [], corrections: [] });
+export type HandwritingProfile = { samples: HandwritingSample[] };
+export const emptyProfile = (): HandwritingProfile => ({ samples: [] });
 export const PROFILE_FILE = "profile/handwriting.json";

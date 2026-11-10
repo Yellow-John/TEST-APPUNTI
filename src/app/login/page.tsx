@@ -1,5 +1,5 @@
 "use client";
-import { BookOpen } from "lucide-react";
+import { AppLogo } from "@/components/AppLogo";
 import { useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
@@ -59,9 +59,7 @@ function LoginInner() {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <div className="card w-full max-w-sm p-6">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-white">
-            <BookOpen size={24} />
-          </span>
+          <AppLogo size={56} />
           <h1 className="text-xl font-bold">Appunti</h1>
           <p className="text-sm text-muted">Dalla foto al testo, sincronizzati ovunque.</p>
         </div>

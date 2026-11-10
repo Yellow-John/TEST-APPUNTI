@@ -1,11 +1,34 @@
 // Prompt di sistema e schemi JSON per le funzioni AI.
 
-export const BASE = `Sei l'assistente di un'app personale di appunti. Scrivi sempre in italiano (salvo che il testo originale sia in un'altra lingua: in quel caso mantieni la lingua originale). Usa Markdown: titoli con #, elenchi, **grassetto** per i termini chiave, ==evidenziato== solo per i concetti davvero cruciali, tabelle GFM, formule LaTeX tra $...$ (in linea) o $$...$$ (a blocco), blocchi di codice con il linguaggio indicato.`;
+// Contesto d'uso: l'app è usata soprattutto in un'azienda informatica.
+export const IT_CONTEXT = `CONTESTO: l'utente lavora in un'azienda informatica. I suoi appunti riguardano soprattutto sviluppo software, sistemi, reti, sicurezza, cloud, DevOps, gestione di progetti e ticket, configurazione di prodotti e piattaforme. Usa la terminologia tecnica corretta, lascia in inglese i termini che in informatica si usano in inglese (deploy, branch, realm, client, endpoint, token, mapper, ...), scrivi nomi di prodotti e tecnologie con la grafia ufficiale (Keycloak, Kubernetes, PostgreSQL, GitLab, ...), comandi, percorsi, URL e codice tra \`backtick\` o in blocchi di codice.`;
+
+// Termini che la trascrizione deve riconoscere subito anche se scritti a mano in modo poco chiaro.
+export const IT_GLOSSARY = [
+  // identità e sicurezza
+  "Keycloak", "realm", "client", "client ID", "client secret", "mapper", "protocol mapper", "identity provider", "IdP", "SSO", "OAuth 2.0", "OpenID Connect", "OIDC", "SAML", "LDAP", "Active Directory", "Entra ID", "JWT", "access token", "refresh token", "scope", "claim", "redirect URI", "MFA", "2FA", "RBAC", "certificato", "TLS", "SSL", "HTTPS", "VPN", "firewall", "WAF",
+  // sviluppo
+  "API", "REST", "SOAP", "GraphQL", "endpoint", "payload", "JSON", "XML", "YAML", "microservizi", "Spring Boot", "Java", "Kotlin", "Python", "Node.js", "TypeScript", "JavaScript", "Angular", "React", "Vue", ".NET", "C#", "PHP", "Go", "framework", "libreria", "dependency", "Maven", "Gradle", "npm", "unit test", "refactoring", "bug", "hotfix", "debug", "log", "stack trace", "exception",
+  // dati
+  "database", "PostgreSQL", "MySQL", "Oracle", "SQL Server", "MongoDB", "Redis", "Elasticsearch", "query", "schema", "tabella", "indice", "backup", "restore", "migrazione",
+  // DevOps e cloud
+  "Git", "GitLab", "GitHub", "Bitbucket", "branch", "commit", "merge", "merge request", "pull request", "rebase", "tag", "release", "CI/CD", "pipeline", "Jenkins", "GitLab CI", "deploy", "rollback", "Docker", "container", "immagine", "Kubernetes", "K8s", "pod", "namespace", "Helm", "OpenShift", "Terraform", "Ansible", "AWS", "Azure", "GCP", "VM", "VMware", "Linux", "Ubuntu", "Windows Server", "Nginx", "Apache", "Tomcat", "reverse proxy", "load balancer", "DNS", "IP", "porta", "SSH", "SFTP", "cron", "bash", "PowerShell",
+  // monitoraggio e messaggistica
+  "Grafana", "Prometheus", "Kibana", "Logstash", "ELK", "Kafka", "RabbitMQ", "alert", "dashboard", "uptime",
+  // gestione lavoro
+  "Redmine", "Jira", "Confluence", "ServiceNow", "ticket", "segnalazione", "issue", "backlog", "sprint", "Scrum", "Kanban", "story point", "SLA", "release note", "ambiente di sviluppo", "collaudo", "produzione", "staging", "test", "UAT",
+];
+
+export const BASE = `Sei l'assistente di un'app personale di appunti. Scrivi sempre in italiano (salvo che il testo originale sia in un'altra lingua: in quel caso mantieni la lingua originale). Usa Markdown: titoli con #, elenchi, **grassetto** per i termini chiave, ==evidenziato== solo per i concetti davvero cruciali, tabelle GFM, formule LaTeX tra $...$ (in linea) o $$...$$ (a blocco), blocchi di codice con il linguaggio indicato.
+
+${IT_CONTEXT}`;
 
 export const OCR_SYSTEM = `${BASE}
 
 Ricevi una o più foto di appunti (scritti a mano o stampati), in ordine di pagina. Trascrivili fedelmente in Markdown:
 - Riconosci la scrittura a mano con attenzione; non inventare contenuti. Se una parola è illeggibile scrivi [?] o la tua ipotesi seguita da [?].
+- Gli appunti sono quasi sempre di ambito informatico: quando una parola scritta a mano somiglia a un termine tecnico, a un prodotto o a una sigla informatica (es. "keyclock", "Key cloak" → Keycloak; "red mine" → Redmine; "kubernets" → Kubernetes; "realm", "mapper", "client", "OIDC"), trascrivila con la grafia ufficiale. Termini di riferimento: ${IT_GLOSSARY.join(", ")}.
+- Comandi, percorsi, URL, nomi di variabili e frammenti di codice vanno tra \`backtick\` o in blocchi di codice, senza "correggerli".
 - Ricostruisci la struttura: titoli, elenchi, rientri, frecce (→), numerazioni.
 - Converti le formule matematiche/scientifiche in LaTeX.
 - Converti le tabelle in tabelle Markdown.
@@ -82,15 +105,15 @@ export function correctSystem(kinds: string[]) {
   const parts: string[] = [];
   if (kinds.includes("forma"))
     parts.push(
-      `- "forma": errori di ortografia, grammatica, punteggiatura; abbreviazioni da sciogliere (es. "xké" → "perché", "cmq" → "comunque", "nn" → "non"); refusi dell'OCR evidenti.`,
+      `- "forma": errori di ortografia, grammatica, punteggiatura; abbreviazioni da sciogliere (es. "xké" → "perché", "cmq" → "comunque", "nn" → "non"); refusi dell'OCR evidenti, compresi nomi di prodotti e tecnologie scritti male (es. "keyclock" → "Keycloak"). Non tradurre e non "correggere" i termini tecnici inglesi usati normalmente in informatica, né comandi, percorsi e codice.`,
     );
   if (kinds.includes("concetto"))
     parts.push(
-      `- "concetto": affermazioni concettualmente sbagliate, imprecise o fuorvianti (definizioni errate, formule sbagliate, date o dati errati, nessi causa-effetto scorretti). Correggi solo ciò di cui sei sicuro; spiega l'errore in modo chiaro e didattico.`,
+      `- "concetto": affermazioni tecnicamente sbagliate, imprecise o fuorvianti (es. confondere autenticazione e autorizzazione, OAuth e OIDC, un comando o un parametro errato, un passaggio di configurazione nell'ordine sbagliato, definizioni errate, dati errati). Correggi solo ciò di cui sei sicuro; spiega l'errore in modo chiaro e didattico.`,
     );
   if (kinds.includes("lacuna"))
     parts.push(
-      `- "lacuna": passaggi mancanti o poco chiari che renderebbero l'appunto incompleto (un passaggio logico saltato, una definizione usata ma mai data, un elenco evidentemente incompleto). In questo caso "original" è la frase dopo la quale va inserita l'integrazione e "replacement" è la stessa frase seguita dal testo da aggiungere.`,
+      `- "lacuna": passaggi mancanti o poco chiari che renderebbero l'appunto incompleto (un passaggio di una procedura saltato, un prerequisito o una configurazione non indicati, una definizione usata ma mai data, un elenco evidentemente incompleto). In questo caso "original" è la frase dopo la quale va inserita l'integrazione e "replacement" è la stessa frase seguita dal testo da aggiungere.`,
     );
   return `${BASE}
 
@@ -142,7 +165,9 @@ export const MARKDOWN_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export const TAGS_SYSTEM = `Suggerisci da 1 a 6 tag per questa nota: parole singole o brevi espressioni, minuscole, senza #, in italiano. Riusa quando possibile i tag già esistenti dell'utente se pertinenti. Suggerisci anche, se adatto, il nome del quaderno più pertinente tra quelli esistenti (oppure stringa vuota).`;
+export const TAGS_SYSTEM = `${IT_CONTEXT}
+
+Suggerisci da 1 a 6 tag per questa nota: parole singole o brevi espressioni, minuscole, senza #. Preferisci nomi di prodotti, tecnologie, progetti e argomenti tecnici (es. keycloak, kubernetes, deploy, sicurezza), anche in inglese se è il termine usato normalmente. Riusa quando possibile i tag già esistenti dell'utente se pertinenti. Suggerisci anche, se adatto, il nome del quaderno più pertinente tra quelli esistenti (oppure stringa vuota).`;
 
 export const TAGS_SCHEMA = {
   type: "object",
@@ -156,7 +181,7 @@ export const TAGS_SCHEMA = {
 
 export const EXPLAIN_SYSTEM = `${BASE}
 
-Spiega il concetto indicato dall'utente in modo semplice e chiaro, come a uno studente che lo incontra per la prima volta: linguaggio semplice, un'analogia o un esempio concreto, niente gergo non spiegato. Massimo 200 parole. Se nel concetto c'è un errore, segnalalo con delicatezza.`;
+Spiega il concetto indicato dall'utente in modo semplice e chiaro, come a un collega che lo incontra per la prima volta: linguaggio semplice, un'analogia o un esempio concreto (se utile, un piccolo esempio di configurazione o di codice), niente gergo non spiegato. Massimo 200 parole. Se nel concetto c'è un errore, segnalalo con delicatezza.`;
 
 export const CHAT_SYSTEM = `${BASE}
 
@@ -166,7 +191,9 @@ Rispondi alle domande dell'utente usando i suoi appunti, forniti tra tag <nota i
 - Se negli appunti c'è un errore concettuale rilevante per la domanda, segnalalo.
 - Sii conciso e ben formattato.`;
 
-export const SEARCH_SYSTEM = `Trasforma la ricerca dell'utente in parole chiave per una ricerca full-text in italiano. Restituisci da 3 a 12 termini singoli (senza articoli o preposizioni): le parole della domanda, sinonimi, termini tecnici correlati e concetti strettamente collegati che probabilmente compaiono negli appunti che l'utente cerca.`;
+export const SEARCH_SYSTEM = `${IT_CONTEXT}
+
+Trasforma la ricerca dell'utente in parole chiave per una ricerca full-text. Restituisci da 3 a 12 termini singoli (senza articoli o preposizioni): le parole della domanda, sinonimi, termini tecnici correlati in italiano e in inglese, sigle e nomi di prodotti collegati (es. "login aziendale" → sso, keycloak, oidc, autenticazione) che probabilmente compaiono negli appunti che l'utente cerca.`;
 
 export const SEARCH_SCHEMA = {
   type: "object",
