@@ -8,7 +8,7 @@ App web installabile (PWA) per PC e telefono, sincronizzata in tempo reale, che 
 
 | Area | Cosa fa |
 |---|---|
-| **Acquisizione** | Campioni della tua grafia usati come riferimento in ogni trascrizione (*La mia grafia*) · riconoscimento orientato all'informatica (Keycloak, Kubernetes, OIDC, …) · Scansione continua dalla fotocamera, scatto singolo o galleria · più pagine in un'unica nota · ritaglio automatico/manuale, rotazione, rimozione ombre, filtri documento/B&N/contrasto · riconoscimento della scrittura a mano · formule convertite in LaTeX, tabelle in tabelle, disegni ritagliati e inseriti come immagini |
+| **Acquisizione** | Campioni della tua grafia e dizionario personale usati come riferimento in ogni trascrizione (*La mia grafia*) · avviso e "Ritrascrivi" quando la nota è stata letta da un modello di riserva · riconoscimento orientato all'informatica (Keycloak, Kubernetes, OIDC, …) · Scansione continua dalla fotocamera, scatto singolo o galleria · più pagine in un'unica nota · ritaglio automatico/manuale, rotazione, rimozione ombre, filtri documento/B&N/contrasto · riconoscimento della scrittura a mano · formule convertite in LaTeX, tabelle in tabelle, disegni ritagliati e inseriti come immagini |
 | **Importazione** | PDF, slide (.pptx), Word, Markdown, HTML, Evernote (.enex), export di Notion (.zip), backup · **Riassunto intelligente** (essenziale / standard / dettagliato): tiene solo le informazioni importanti ed elimina le ripetizioni · conversione completa · importazione diretta senza AI |
 | **AI** | Correzione della forma · verifica dei concetti · lacune da integrare: tutte come proposte da accettare/rifiutare, con spiegazione · riordino automatico · spiegazione semplice di un passaggio selezionato · chat con i tuoi appunti con citazioni · tag e quaderno suggeriti |
 | **Organizzazione** | Quaderni e sotto-quaderni, tag, collegamenti `[[Nota]]` con autocompletamento, note che rimandano a questa, mappa a grafo · ricerca istantanea (anche offline) e ricerca per significato · preferiti, note fissate in alto, archivio, cestino |
@@ -52,7 +52,7 @@ Il file `vercel.json` attiva un controllo automatico giornaliero (`/api/keepaliv
 | Servizio | Limite del piano gratuito | Cosa succede se lo superi |
 |---|---|---|
 | **Gemini** | Un numero di richieste al giorno che Google cambia nel tempo (lo vedi in AI Studio → *Rate limits*) | L'app passa al modello "lite"; se anche quello è esaurito ti avvisa. Le foto si possono trascrivere senza AI con l'OCR nel browser (buono per il testo stampato, scarso con la scrittura a mano). La quota si rinnova ogni giorno |
-| **Supabase** | 500 MB di database (decine di migliaia di note), 1 GB di file | Le foto sono compresse (WebP, circa 100-350 KB a pagina: oltre 3.000 pagine in 1 GB) e i PDF importati vengono cancellati dopo l'elaborazione |
+| **Supabase** | 500 MB di database (decine di migliaia di note), 1 GB di file | Le foto sono compresse (WebP, circa 150-550 KB a pagina: oltre 2.000 pagine in 1 GB) e i PDF importati vengono cancellati dopo l'elaborazione |
 | **Vercel** | Uso personale, funzioni fino a 300 secondi | Un PDF molto lungo può superare il tempo massimo: dividilo in parti |
 
 **Privacy:** con il piano gratuito di Gemini, Google può usare i contenuti inviati all'AI (e farli leggere a revisori umani) per migliorare i suoi servizi. Le note bloccate con PIN non vengono mai inviate all'AI; evita di elaborare con l'AI appunti con dati personali o riservati.

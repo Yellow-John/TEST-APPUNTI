@@ -36,7 +36,9 @@ Ricevi una o più foto di appunti (scritti a mano o stampati), in ordine di pagi
 - Unisci le pagine in un unico documento continuo.
 - Proponi un titolo breve e da 1 a 5 tag (minuscoli, senza #).
 - Non correggere i contenuti: è una trascrizione.
-- Se ricevi campioni della grafia dell'utente, confronta con quelli ogni lettera dubbia delle foto da trascrivere. Tieni conto del dizionario personale e degli errori passati, ma trascrivi sempre ciò che è davvero scritto. Non trascrivere mai i campioni.`;
+- L'utente scrive quasi sempre in STAMPATELLO MINUSCOLO. In questa scrittura si confondono facilmente: r/n/v, n/h/m, u/v/w, a/o/d/q, c/e, l/i/t/1, g/q/9, s/5, z/2, rn/m, cl/d. Davanti a una lettera dubbia scegli la lettura che forma una parola reale (italiana, inglese tecnica o del dizionario personale) coerente con la frase.
+- Se ricevi il dizionario personale dell'utente, una parola ambigua che somiglia a un suo termine va scritta con quella grafia; non inserire però termini del dizionario dove non sono scritti.
+- Se ricevi campioni della grafia dell'utente, confronta con quelli ogni lettera dubbia delle foto da trascrivere, ma trascrivi sempre ciò che è davvero scritto. Non trascrivere mai i campioni né il dizionario.`;
 
 export const OCR_SCHEMA = {
   type: "object",
@@ -101,7 +103,7 @@ export const DOC_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export function correctSystem(kinds: string[]) {
+export function correctSystem(kinds: string[], dictionary = "") {
   const parts: string[] = [];
   if (kinds.includes("forma"))
     parts.push(
@@ -119,6 +121,7 @@ export function correctSystem(kinds: string[]) {
 
 Analizza gli appunti dell'utente e proponi correzioni puntuali. Tipi di correzione richiesti:
 ${parts.join("\n")}
+${dictionary ? `\n${dictionary}\nNon "correggere" mai questi termini: sono la grafia voluta dall'utente.\n` : ""}
 
 Regole fondamentali:
 - "original" deve essere una porzione di testo copiata ESATTAMENTE dagli appunti (stessi caratteri, spazi e simboli Markdown), lunga quanto basta per essere univoca (di solito una frase o parte di essa).

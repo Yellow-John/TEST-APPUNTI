@@ -29,6 +29,10 @@ export type NoteSource = {
   job?: NoteJob;
   /** figure da ritagliare dalle foto (fatto dal browser all'apertura della nota) */
   figures?: Figure[];
+  /** modello che ha prodotto il contenuto (es. "gemini-2.5-flash" o "groq:llama-4-scout") */
+  model?: string;
+  /** true se ha risposto un modello di riserva (Flash-Lite o altro provider): più errori di lettura */
+  model_fallback?: boolean;
 };
 
 export type Note = {
@@ -61,6 +65,23 @@ export type SummaryLevel = "essenziale" | "standard" | "dettagliato";
 
 /** Profilo della grafia dell'utente: usato come riferimento in ogni trascrizione (salvato nello storage). */
 export type HandwritingSample = { path: string; description: string };
-export type HandwritingProfile = { samples: HandwritingSample[] };
-export const emptyProfile = (): HandwritingProfile => ({ samples: [] });
+export type HandwritingProfile = {
+  samples: HandwritingSample[];
+  /** dizionario personale: termini, nomi e sigle da riconoscere nelle trascrizioni */
+  terms?: string[];
+};
+export const emptyProfile = (): HandwritingProfile => ({ samples: [], terms: [] });
+
+/** Normalizza il profilo letto dallo storage (formato vecchio senza `terms` compreso). */
+export function parseProfile(text: string): HandwritingProfile {
+  try {
+    const raw = JSON.parse(text) as Partial<HandwritingProfile>;
+    return {
+      samples: Array.isArray(raw.samples) ? raw.samples : [],
+      terms: Array.isArray(raw.terms) ? raw.terms.filter((t): t is string => typeof t === "string" && !!t.trim()) : [],
+    };
+  } catch {
+    return emptyProfile();
+  }
+}
 export const PROFILE_FILE = "profile/handwriting.json";

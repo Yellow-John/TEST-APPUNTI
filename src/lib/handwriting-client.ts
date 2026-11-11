@@ -1,6 +1,6 @@
 "use client";
 import { supabase } from "./supabase/client";
-import { type HandwritingProfile, PROFILE_FILE, emptyProfile } from "./types";
+import { type HandwritingProfile, PROFILE_FILE, emptyProfile, parseProfile } from "./types";
 
 async function userId() {
   const { data } = await supabase().auth.getUser();
@@ -12,12 +12,7 @@ export async function loadProfile(): Promise<HandwritingProfile> {
   const uid = await userId();
   const { data } = await supabase().storage.from("files").download(`${uid}/${PROFILE_FILE}`);
   if (!data) return emptyProfile();
-  try {
-    const raw = JSON.parse(await data.text()) as Partial<HandwritingProfile>;
-    return { samples: Array.isArray(raw.samples) ? raw.samples : [] };
-  } catch {
-    return emptyProfile();
-  }
+  return parseProfile(await data.text());
 }
 
 export async function saveProfile(p: HandwritingProfile) {

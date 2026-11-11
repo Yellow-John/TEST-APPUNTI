@@ -19,6 +19,15 @@ import type { SummaryLevel } from "@/lib/types";
 
 type Page = { id: string; file: Blob; img: HTMLImageElement; adjust: Adjust; thumb: string };
 
+/**
+ * La foto salvata è quella che legge l'AI: B&N e contrasto forte cancellano i tratti sottili della penna
+ * (r/n, i/l, c/e nello stampatello minuscolo), quindi per la trascrizione si scende al filtro "documento",
+ * che toglie solo le ombre e conserva le sfumature.
+ */
+function forAi(a: Adjust): Adjust {
+  return a.filter === "bianco-nero" || a.filter === "contrasto" ? { ...a, filter: "documento" } : a;
+}
+
 export default function CapturePage() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -88,7 +97,7 @@ export default function CapturePage() {
     const paths: string[] = [];
     for (const [i, p] of pages.entries()) {
       setStatus(`Caricamento pagina ${i + 1} di ${pages.length}… (non chiudere l'app)`);
-      const { blob, ext } = await compressCanvas(renderAdjusted(p.img, p.adjust, 1800), 0.8);
+      const { blob, ext } = await compressCanvas(renderAdjusted(p.img, forAi(p.adjust), 2400), 0.85);
       paths.push(await uploadFile(blob, folder, ext));
     }
     return paths;
@@ -354,6 +363,9 @@ function PageEditor({ page, onChange, onClose }: { page: Page; onChange: (a: Adj
             </button>
           ))}
         </div>
+        {(a.filter === "bianco-nero" || a.filter === "contrasto") && (
+          <p className="text-center text-xs text-muted">Solo anteprima: per la trascrizione si usa &quot;Documento&quot;, che non cancella i tratti sottili della penna.</p>
+        )}
         <div className="mx-auto grid max-w-md grid-cols-2 gap-3 text-xs">
           <label>
             Luminosità
