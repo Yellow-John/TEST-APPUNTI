@@ -162,8 +162,10 @@ export function ImageAnnotator({
             draw(drawing.current);
           }}
           onPointerUp={() => {
-            if (drawing.current && drawing.current.points.length > 1) setShapes((s) => [...s, drawing.current!]);
+            // copia locale: l'updater di setShapes gira dopo, quando drawing.current è già null
+            const shape = drawing.current;
             drawing.current = null;
+            if (shape && shape.points.length > 1) setShapes((s) => [...s, shape]);
           }}
         />
       </div>
