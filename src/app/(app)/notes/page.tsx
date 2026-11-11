@@ -28,6 +28,20 @@ const SORTS: [Sort, string][] = [
   ["title-desc", "Titolo Z → A"],
 ];
 
+const TITLE_COLLATOR = new Intl.Collator("it", { sensitivity: "base", numeric: true });
+
+/**
+ * Chiave per l'ordinamento per titolo: ignora simboli iniziali (#, *, emoji, virgolette), maiuscole e accenti.
+ * group 0 = inizia con una lettera, 1 = inizia con un numero, 2 = senza titolo.
+ */
+function titleSortKey(n: Note, decrypted?: string): { group: 0 | 1 | 2; text: string } {
+  const untitled =
+    decrypted !== undefined ? !decrypted || decrypted === "Senza titolo" : !n.title.trim() && !n.is_locked && !n.content.trim();
+  const text = (decrypted ?? noteTitle(n)).replace(/^[^\p{L}\p{N}]+/u, "");
+  if (untitled || !text) return { group: 2, text: "" };
+  return { group: /^\p{N}/u.test(text) ? 1 : 0, text };
+}
+
 export default function NotesPage() {
   const sp = useSearchParams();
   const view = sp.get("view") ?? "all";
@@ -84,7 +98,6 @@ export default function NotesPage() {
     else {
       l = l.filter((n) => !n.deleted_at);
       l = view === "archive" ? l.filter((n) => n.is_archived) : l.filter((n) => !n.is_archived);
-      if (view === "fav") l = l.filter((n) => n.is_favorite);
     }
     if (nb === "none") l = l.filter((n) => !n.notebook_id);
     else if (nbIds) l = l.filter((n) => n.notebook_id && nbIds.has(n.notebook_id));
@@ -97,16 +110,25 @@ export default function NotesPage() {
         return words.every((w) => hay.includes(w));
       });
     }
-    const t = (n: Note) => (nbUnlock?.titles.get(n.id) ?? noteTitle(n)).toLocaleLowerCase("it");
+    const keys = new Map(l.map((n) => [n.id, titleSortKey(n, nbUnlock?.titles.get(n.id))]));
+    const byTitle = (a: Note, b: Note, dir: 1 | -1) => {
+      const ka = keys.get(a.id)!;
+      const kb = keys.get(b.id)!;
+      // prima le lettere, poi i numeri, in fondo le note senza titolo (in entrambe le direzioni)
+      if (ka.group !== kb.group) return ka.group - kb.group;
+      if (ka.group === 2) return b.updated_at.localeCompare(a.updated_at);
+      return dir * TITLE_COLLATOR.compare(ka.text, kb.text) || b.updated_at.localeCompare(a.updated_at);
+    };
     const cmp: Record<Sort, (a: Note, b: Note) => number> = {
       updated: (a, b) => b.updated_at.localeCompare(a.updated_at),
       created: (a, b) => b.created_at.localeCompare(a.created_at),
       oldest: (a, b) => a.created_at.localeCompare(b.created_at),
-      title: (a, b) => t(a).localeCompare(t(b), "it"),
-      "title-desc": (a, b) => t(b).localeCompare(t(a), "it"),
+      title: (a, b) => byTitle(a, b, 1),
+      "title-desc": (a, b) => byTitle(a, b, -1),
     };
-    // le note fissate restano in alto (tranne nel cestino)
-    return l.sort((a, b) => (view === "trash" ? 0 : Number(b.is_pinned) - Number(a.is_pinned)) || cmp[sort](a, b));
+    // in alto le note fissate, poi le preferite (tranne nel cestino)
+    const rank = (n: Note) => (n.is_pinned ? 2 : n.is_favorite ? 1 : 0);
+    return l.sort((a, b) => (view === "trash" ? 0 : rank(b) - rank(a)) || cmp[sort](a, b));
   }, [notes, view, nb, nbIds, tag, q, sort, nbUnlock]);
 
   // cambiando vista si esce dalla selezione
@@ -174,7 +196,7 @@ export default function NotesPage() {
   }, [list, nbUnlock, nb]);
 
   const title =
-    view === "trash" ? "Cestino" : view === "archive" ? "Archivio" : view === "fav" ? "Preferiti" :
+    view === "trash" ? "Cestino" : view === "archive" ? "Archivio" :
     nb === "none" ? "Senza quaderno" : nb ? nbMap.get(nb)?.name ?? "Quaderno" : tag ? `#${tag}` : "Tutte le note";
 
   async function semanticSearch() {
@@ -558,7 +580,7 @@ function NoteRow({
 
 function EmptyState({ view }: { view: string }) {
   const msg =
-    view === "trash" ? "Il cestino è vuoto." : view === "archive" ? "Nessuna nota archiviata." : view === "fav" ? "Nessuna nota preferita." : "Nessuna nota qui.";
+    view === "trash" ? "Il cestino è vuoto." : view === "archive" ? "Nessuna nota archiviata." : "Nessuna nota qui.";
   return (
     <div className="card flex flex-col items-center gap-3 p-10 text-center">
       <p className="text-muted">{msg}</p>

@@ -1,7 +1,7 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
-  Camera, FileText, FolderOpen, Hash, Lock, MessageCircle, Network, PenTool, Plus, Search, Settings, Star, Trash2, Upload,
+  Camera, FileText, FolderOpen, Hash, Lock, MessageCircle, Network, PenTool, Plus, Search, Settings, Trash2, Upload,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -18,7 +18,6 @@ const ACTIONS: Omit<Item, "group">[] = [
   { id: "a-photo", label: "Fotografa appunti", icon: <Camera size={16} />, href: "/capture" },
   { id: "a-import", label: "Importa PDF, slide o documenti", icon: <Upload size={16} />, href: "/import" },
   { id: "a-chat", label: "Chiedi ai tuoi appunti", icon: <MessageCircle size={16} />, href: "/chat" },
-  { id: "a-fav", label: "Preferiti", icon: <Star size={16} />, href: "/notes?view=fav" },
   { id: "a-graph", label: "Mappa dei collegamenti", icon: <Network size={16} />, href: "/graph" },
   { id: "a-hw", label: "La mia grafia", icon: <PenTool size={16} />, href: "/grafia" },
   { id: "a-trash", label: "Cestino", icon: <Trash2 size={16} />, href: "/notes?view=trash" },

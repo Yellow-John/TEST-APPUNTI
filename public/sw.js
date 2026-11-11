@@ -1,5 +1,5 @@
 /* Service worker di Appunti: funzionamento offline + "Condividi con Appunti" */
-const VERSION = "v2"; // cambiare per forzare l'aggiornamento di icone e pagine in cache
+const VERSION = "v3"; // cambiare per forzare l'aggiornamento di icone e pagine in cache
 const SHELL = `shell-${VERSION}`;
 const ASSETS = `assets-${VERSION}`;
 const FILES = "files-v1";

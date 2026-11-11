@@ -2,7 +2,7 @@
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   Archive, ChevronRight, FolderPlus, Hash, Inbox, MessageCircle, Network, Pencil,
-  Plus, Settings, Star, Trash2, Upload, Camera, FolderOpen, PenTool, Lock, LockOpen, MoreHorizontal, Search,
+  Plus, Settings, Trash2, Upload, Camera, FolderOpen, PenTool, Lock, LockOpen, MoreHorizontal, Search,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -82,7 +82,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {item("/notes", <Inbox size={16} />, "Tutte le note", isActive({}), live.length)}
-      {item("/notes?view=fav", <Star size={16} />, "Preferiti", isActive({ view: "fav" }))}
       {item("/chat", <MessageCircle size={16} />, "Chiedi ai tuoi appunti", pathname === "/chat")}
       {item("/graph", <Network size={16} />, "Mappa dei collegamenti", pathname === "/graph")}
 
