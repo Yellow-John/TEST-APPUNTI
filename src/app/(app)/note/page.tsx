@@ -1,7 +1,7 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
-  Archive, FolderInput, ArrowLeft, Columns2, Download, Eye, FileText, Image as ImageIcon, Lock, LockOpen, MoreVertical,
+  Archive, FolderInput, ArrowLeft, Columns2, Download, Eye, FileText, Lock, LockOpen, MoreVertical,
   PenLine, Pin, Share2, Sparkles, Star, Trash2, Undo2,
 } from "lucide-react";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import { ImageAnnotator } from "@/components/note/ImageAnnotator";
 import { JobStatus } from "@/components/note/JobStatus";
 import { MoveDialog } from "@/components/MoveDialog";
 import { ShareDialog } from "@/components/note/ShareDialog";
+import { OriginalPhotos } from "@/components/note/OriginalPhotos";
 import { SecretsBanner } from "@/components/note/SecretsBanner";
 import { TagEditor } from "@/components/note/TagEditor";
 import { protectSecrets } from "@/lib/secrets";
@@ -21,7 +22,6 @@ import { PinDialog } from "@/components/PinDialog";
 import { aiPost } from "@/lib/ai-client";
 import { db } from "@/lib/db";
 import { exportDocx, exportMarkdown, exportPdf } from "@/lib/export";
-import { fileUrl } from "@/lib/files";
 import { useWikiIndex } from "@/lib/hooks";
 import { cropPendingFigures } from "@/lib/jobs-client";
 import { rememberNote } from "@/lib/recent";
@@ -77,7 +77,6 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
   const [pinFor, setPinFor] = useState<null | "unlock" | "lock" | "remove" | "protect">(null);
   const [annotate, setAnnotate] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
-  const [showOriginals, setShowOriginals] = useState(false);
   const editor = useRef<EditorHandle>(null);
   const dirty = useRef(false);
   const lastSaved = useRef(note.is_locked ? { title: "", content: "" } : { title: note.title, content: note.content });
@@ -451,21 +450,7 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
           </div>
 
           {note.source?.files && note.source.files.length > 0 && note.source.type === "photo" && (
-            <div className="no-print mt-6">
-              <button className="flex items-center gap-1.5 text-sm text-muted hover:text-fg" onClick={() => setShowOriginals(!showOriginals)}>
-                <ImageIcon size={15} /> Foto originali ({note.source.files.length}) {showOriginals ? "▴" : "▾"}
-              </button>
-              {showOriginals && (
-                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {note.source.files.map((f) => (
-                    <a key={f} href={fileUrl(f)} target="_blank" rel="noreferrer">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={fileUrl(f)} alt="Foto originale" className="aspect-[3/4] w-full rounded-lg object-cover" loading="lazy" />
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
+            <OriginalPhotos note={note} content={content} readOnly={trashed} />
           )}
 
           {backlinks.length > 0 && (

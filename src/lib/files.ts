@@ -21,3 +21,14 @@ export async function uploadFile(blob: Blob, folder: string, ext: string): Promi
 export function fileUrl(path: string): string {
   return `/api/file/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
+
+/** Elimina un file dallo storage e dalla cache offline del service worker. */
+export async function removeFile(path: string): Promise<void> {
+  const { error } = await supabase().storage.from("files").remove([path]);
+  if (error) throw new Error(`Eliminazione non riuscita: ${error.message}`);
+  try {
+    for (const k of await caches.keys()) await (await caches.open(k)).delete(fileUrl(path), { ignoreSearch: true });
+  } catch {
+    /* cache non disponibile */
+  }
+}

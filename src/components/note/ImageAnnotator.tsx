@@ -1,20 +1,35 @@
 "use client";
-import { ArrowUpRight, Circle, Highlighter, Pen, RotateCcw, Square, Type } from "lucide-react";
+import { ArrowUpRight, Circle, Highlighter, Pen, RectangleHorizontal, RotateCcw, Square, Type } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { compressCanvas, loadImage } from "@/lib/image";
 import { fileUrl, uploadFile } from "@/lib/files";
 import { Modal } from "../Modal";
 
-type Tool = "pen" | "highlight" | "arrow" | "circle" | "rect" | "text";
+type Tool = "pen" | "highlight" | "arrow" | "circle" | "rect" | "cover" | "text";
 type Shape = { tool: Tool; color: string; points: [number, number][]; text?: string };
 
 const COLORS = ["#e11d48", "#2563eb", "#16a34a", "#f59e0b", "#111827"];
 
-/** Annotazioni su un'immagine: frecce, cerchi, riquadri, penna, evidenziatore, testo. */
-export function ImageAnnotator({ src, noteId, onSave, onClose }: { src: string; noteId: string; onSave: (newSrc: string) => void; onClose: () => void }) {
+/** Annotazioni su un'immagine: frecce, cerchi, riquadri, penna, evidenziatore, testo, copertura di dati sensibili. */
+export function ImageAnnotator({
+  src,
+  noteId,
+  onSave,
+  onClose,
+  initialTool = "arrow",
+  title = "Annota immagine",
+}: {
+  src: string;
+  noteId: string;
+  /** newSrc: URL da usare nel testo; path: percorso nello storage */
+  onSave: (newSrc: string, path: string) => void;
+  onClose: () => void;
+  initialTool?: Tool;
+  title?: string;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [img, setImg] = useState<HTMLImageElement | null>(null);
-  const [tool, setTool] = useState<Tool>("arrow");
+  const [tool, setTool] = useState<Tool>(initialTool);
   const [color, setColor] = useState(COLORS[0]);
   const [shapes, setShapes] = useState<Shape[]>([]);
   const drawing = useRef<Shape | null>(null);
@@ -50,6 +65,10 @@ export function ImageAnnotator({ src, noteId, onSave, onClose }: { src: string; 
       if (s.tool === "pen" || s.tool === "highlight") {
         s.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
         ctx.stroke();
+      } else if (s.tool === "cover") {
+        // riquadro pieno e opaco: nasconde davvero il contenuto (il file salvato non contiene più l'originale)
+        ctx.fillStyle = "#000";
+        ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
       } else if (s.tool === "rect") {
         ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
       } else if (s.tool === "circle") {
@@ -87,7 +106,7 @@ export function ImageAnnotator({ src, noteId, onSave, onClose }: { src: string; 
     try {
       const { blob, ext } = await compressCanvas(canvas.current, 0.82);
       const path = await uploadFile(blob, `notes/${noteId}`, ext);
-      onSave(fileUrl(path));
+      onSave(fileUrl(path), path);
     } catch (e) {
       alert((e as Error).message);
       setSaving(false);
@@ -101,10 +120,11 @@ export function ImageAnnotator({ src, noteId, onSave, onClose }: { src: string; 
     ["pen", <Pen key="p" size={16} />, "Penna"],
     ["highlight", <Highlighter key="h" size={16} />, "Evidenziatore"],
     ["text", <Type key="t" size={16} />, "Testo"],
+    ["cover", <RectangleHorizontal key="k" size={16} fill="currentColor" />, "Copri (nasconde dati sensibili)"],
   ];
 
   return (
-    <Modal title="Annota immagine" onClose={onClose} wide>
+    <Modal title={title} onClose={onClose} wide>
       <div className="mb-3 flex flex-wrap items-center gap-1">
         {tools.map(([t, icon, label]) => (
           <button key={t} className={`btn-icon ${tool === t ? "!bg-accent-soft !text-accent" : ""}`} onClick={() => setTool(t)} title={label} aria-label={label}>
@@ -150,7 +170,7 @@ export function ImageAnnotator({ src, noteId, onSave, onClose }: { src: string; 
       <div className="mt-3 flex justify-end gap-2">
         <button className="btn" onClick={onClose}>Annulla</button>
         <button className="btn-primary" onClick={save} disabled={saving || !shapes.length}>
-          {saving ? "Salvataggio…" : "Salva annotazioni"}
+          {saving ? "Salvataggio…" : "Salva"}
         </button>
       </div>
     </Modal>

@@ -119,3 +119,13 @@ export function restoreStream(stream: ReadableStream<Uint8Array>, restore: (s: s
     }),
   );
 }
+
+const SENSITIVE_TAG = /^(?:pin|password|passwords|pwd|segret[oi]|secret|credenziali?|token|chiav[ei]|banca|carta)$/i;
+
+/**
+ * La nota contiene (o conteneva) dati sensibili: segreti trovati nel testo, valori già mascherati con ••••
+ * o tag come #pin / #password. Usato per nascondere le foto originali, che mostrano il testo in chiaro.
+ */
+export function isSensitiveNote(content: string, tags: string[] = []): boolean {
+  return /•{4,}/.test(content) || tags.some((t) => SENSITIVE_TAG.test(t)) || detectSecrets(content).length > 0;
+}
