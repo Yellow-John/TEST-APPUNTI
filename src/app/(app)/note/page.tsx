@@ -12,6 +12,7 @@ import { AiPanel } from "@/components/note/AiPanel";
 import { Editor, type EditorHandle } from "@/components/note/Editor";
 import { ImageAnnotator } from "@/components/note/ImageAnnotator";
 import { JobStatus } from "@/components/note/JobStatus";
+import { ModelFallbackBanner } from "@/components/note/ModelFallbackBanner";
 import { MoveDialog } from "@/components/MoveDialog";
 import { ShareDialog } from "@/components/note/ShareDialog";
 import { SecretsBanner } from "@/components/note/SecretsBanner";
@@ -417,6 +418,8 @@ function NoteEditor({ note, startInEdit }: { note: Note; startInEdit: boolean })
               </button>
             )}
           </div>
+
+          {!note.is_locked && !trashed && <ModelFallbackBanner note={note} />}
 
           {!note.is_locked && !trashed && <SecretsBanner noteId={note.id} content={content} onLock={() => setPinFor("lock")} onChange={setContent} />}
 

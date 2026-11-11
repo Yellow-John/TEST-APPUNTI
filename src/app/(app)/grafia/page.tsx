@@ -15,13 +15,17 @@ export default function HandwritingPage() {
   const [profile, setProfile] = useState<HandwritingProfile | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftDesc, setDraftDesc] = useState(ALPHABET_TEMPLATE);
+  const [termsText, setTermsText] = useState("");
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadProfile()
-      .then(setProfile)
+      .then((p) => {
+        setProfile(p);
+        setTermsText((p.terms ?? []).join("\n"));
+      })
       .catch((e) => setMsg((e as Error).message));
   }, []);
 
@@ -67,6 +71,9 @@ export default function HandwritingPage() {
       setBusy("");
     }
   }
+
+  const parsedTerms = [...new Set(termsText.split(/[\n,;]+/).map((t) => t.trim()).filter(Boolean))];
+  const termsChanged = parsedTerms.join("\n") !== (profile?.terms ?? []).join("\n");
 
   if (!profile) return <div className="p-8 text-muted">{msg || "Caricamento…"}</div>;
 
@@ -143,6 +150,28 @@ export default function HandwritingPage() {
           </button>
         )}
         <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files?.[0]) void pick(e.target.files[0]); e.target.value = ""; }} />
+      </section>
+
+      {/* dizionario personale */}
+      <section className="card p-4">
+        <h2 className="font-semibold">Dizionario personale</h2>
+        <p className="mb-3 mt-1 text-sm text-muted">
+          Nomi, sigle, progetti, colleghi e termini che scrivi spesso, uno per riga. Quando una parola scritta a mano è ambigua, l&apos;AI sceglie la grafia di questo
+          elenco. Aggiungi qui ogni parola che vedi trascritta male.
+        </p>
+        <textarea
+          className="input min-h-[8rem] font-mono text-xs"
+          value={termsText}
+          onChange={(e) => setTermsText(e.target.value)}
+          placeholder={"Keycloak\nRedmine\nprogetto Atlante\nMario Rossi"}
+          aria-label="Dizionario personale"
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-muted">{parsedTerms.length} termini</span>
+          <button className="btn-primary ml-auto" disabled={!!busy || !termsChanged} onClick={() => persist({ ...profile, terms: parsedTerms }, "Dizionario salvato ✓")}>
+            <Save size={15} /> Salva dizionario
+          </button>
+        </div>
       </section>
 
       {msg && <p className="sticky bottom-20 rounded-lg bg-panel-2 p-2 text-center text-sm md:bottom-4">{msg}</p>}

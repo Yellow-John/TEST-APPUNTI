@@ -38,7 +38,14 @@ export type AiCall = {
   schema?: Record<string, unknown>;
   tier?: Tier;
   maxOutputTokens?: number;
+  /** chiamata con il modello che ha prodotto la risposta accettata (l'ultima chiamata vince) */
+  onModel?: (model: string, provider: string) => void;
 };
+
+/** Modello "buono": un Flash di Gemini non Lite. Tutto il resto è una riserva, meno precisa sulla scrittura a mano. */
+export function isPrimaryModel(provider: string, model: string) {
+  return provider === "gemini" && !/lite/i.test(model);
+}
 
 function contents(c: AiCall): Content[] {
   const parts = typeof c.parts === "string" ? [{ text: c.parts }] : c.parts;
@@ -232,6 +239,7 @@ async function callText(c: AiCall, accept?: (text: string) => void): Promise<str
       const r = await compatChat(cand, c);
       accept?.(r.text); // prima di registrare: una risposta scartata non conta
       await logUsage(c.sb, c.userId, c.feature, r.model, r.input, r.output);
+      c.onModel?.(r.model, cand.provider.id);
       return r.text;
     },
     accept,
@@ -255,6 +263,7 @@ async function callGemini(c: AiCall): Promise<string> {
     if (reason === "MAX_TOKENS") throw new Error("Risposta troppo lunga: prova a dividere il documento in parti più piccole.");
     const text = res.text;
     if (!text) throw new Error("Risposta vuota dall'AI, riprova.");
+    c.onModel?.(model, "gemini");
     return text;
   });
 }
