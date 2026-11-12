@@ -163,6 +163,6 @@ function linkCitations(text: string, sources?: Source[]) {
   if (!sources?.length) return text;
   return text.replace(/\[(\d+)\](?!\()/g, (m, n) => {
     const s = sources.find((x) => x.n === Number(n));
-    return s ? `[[${n}]](/note?id=${s.id})` : m;
+    return s ? `[\\[${n}\\]](/note?id=${s.id} "${s.title.replace(/"/g, "'")}")` : m;
   });
 }

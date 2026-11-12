@@ -25,7 +25,7 @@ export function MarkdownView({ content, wikiIndex, onMissingLink, onImageClick, 
         rehypePlugins={[rehypeKatex]}
         urlTransform={(url) => (url.startsWith("wiki:") ? url : defaultUrlTransform(url))}
         components={{
-          a({ href, children }) {
+          a({ href, children, title }) {
             if (href?.startsWith("wiki:")) {
               const title = decodeURIComponent(href.slice(5));
               const id = wikiIndex?.get(title.toLowerCase());
@@ -49,6 +49,8 @@ export function MarkdownView({ content, wikiIndex, onMissingLink, onImageClick, 
                 </a>
               );
             }
+            // link interni (es. citazioni della chat): stessa scheda, senza ricaricare
+            if (href?.startsWith("/")) return <Link href={href} title={title} className="wiki">{children}</Link>;
             return (
               <a href={href} target="_blank" rel="noopener noreferrer">
                 {children}
